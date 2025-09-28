@@ -64,8 +64,13 @@ class EnhancedAMLPreprocessor:
         self.process = psutil.Process()
         self.max_memory_mb = 0
         
+        # MEMORY OPTIMIZATION: Temporary file storage
+        self.temp_dir = Config.PROCESSED_DATA_DIR / 'temp'
+        self.temp_dir.mkdir(exist_ok=True)
+        
         self.logger.info(f"Initialized Enhanced AML Preprocessor for {dataset_name}")
         self.logger.info(f"Chunk size: {self.chunk_size:,}")
+        self.logger.info("Memory optimizations enabled: streaming, reduced features, aggressive GC")
         
     def _setup_logging(self, log_level):
         """Setup comprehensive logging"""
@@ -84,16 +89,33 @@ class EnhancedAMLPreprocessor:
         self.logger = logging.getLogger(__name__)
         self.logger.info(f"Logging initialized. Log file: {log_file}")
         
-    def _monitor_memory(self):
-        """Monitor and log memory usage"""
+    def _monitor_memory(self, force_gc=False):
+        """Monitor and log memory usage with aggressive garbage collection"""
         memory_mb = self.process.memory_info().rss / 1024 / 1024
         self.max_memory_mb = max(self.max_memory_mb, memory_mb)
         
+        # MEMORY OPTIMIZATION: More aggressive garbage collection
+        if memory_mb > 2000 or force_gc:  # Force GC at 2GB instead of 8GB
+            self.logger.debug(f"Forcing garbage collection at {memory_mb:.1f} MB")
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            memory_mb = self.process.memory_info().rss / 1024 / 1024
+            
         if memory_mb > Config.MAX_MEMORY_USAGE_GB * 1024:
             self.logger.warning(f"High memory usage: {memory_mb:.1f} MB")
-            gc.collect()
             
         return memory_mb
+    
+    def _save_chunk_to_temp(self, edge_features, edge_indices, labels, timestamps, chunk_id):
+        """MEMORY OPTIMIZATION: Save chunk data to temporary files"""
+        temp_file = self.temp_dir / f'{self.dataset_name}_chunk_{chunk_id}.npz'
+        np.savez_compressed(temp_file,
+                          edge_features=edge_features,
+                          edge_indices=edge_indices,
+                          labels=labels,
+                          timestamps=timestamps)
+        return temp_file
         
     def load_accounts_efficiently(self):
         """Load and process accounts data with enhanced error handling"""
@@ -336,24 +358,18 @@ class EnhancedAMLPreprocessor:
             df_chunk['LargeAmount'] = (df_chunk['Amount Received'] > df_chunk['Amount Received'].quantile(0.95)).astype(float)
             df_chunk['SmallAmount'] = (df_chunk['Amount Received'] < df_chunk['Amount Received'].quantile(0.05)).astype(float)
             
-            # Extract comprehensive edge features (16 features)
+            # MEMORY OPTIMIZATION: Reduced edge features (10 features instead of 16)
             edge_features = np.column_stack([
                 np.log10(df_chunk['Amount Received'].clip(lower=1)),      # 0
                 np.log10(df_chunk['Amount Paid'].clip(lower=1)),          # 1
-                df_chunk['Hour'],                                          # 2
-                df_chunk['DayOfWeek'],                                     # 3
-                df_chunk['Month'],                                         # 4
-                df_chunk['Quarter'],                                       # 5
-                df_chunk['IsWeekend'],                                     # 6
-                df_chunk['BusinessHours'],                                 # 7
-                df_chunk['RecCurrencyEnc'],                               # 8
-                df_chunk['PayCurrencyEnc'],                               # 9
-                df_chunk['PaymentFormatEnc'],                             # 10
-                np.log10(df_chunk['AmountDifference'].clip(lower=0.01)),  # 11
-                df_chunk['ExchangeRate'].clip(0, 10),                     # 12
-                df_chunk['RoundAmount'],                                   # 13
-                df_chunk['CrossCurrency'],                                 # 14
-                df_chunk['SelfTransaction']                                # 15
+                df_chunk['Hour'] / 24.0,                                  # 2 - normalized
+                df_chunk['DayOfWeek'] / 7.0,                             # 3 - normalized
+                df_chunk['Month'] / 12.0,                                # 4 - normalized
+                df_chunk['RecCurrencyEnc'] / len(self.currency_le.classes_), # 5 - normalized
+                df_chunk['PayCurrencyEnc'] / len(self.currency_le.classes_), # 6 - normalized
+                df_chunk['PaymentFormatEnc'] / len(self.payment_le.classes_), # 7 - normalized
+                df_chunk['CrossCurrency'],                                # 8
+                df_chunk['SelfTransaction']                               # 9
             ])
             
             # Edge indices (filter out invalid mappings)
@@ -370,7 +386,7 @@ class EnhancedAMLPreprocessor:
             # Filter features for valid edges only
             edge_features = edge_features[valid_mask]
             
-            # Store chunk data
+            # MEMORY OPTIMIZATION: Streaming - save to disk every 20 chunks
             all_edge_features.append(edge_features)
             all_edge_indices.append(edge_indices)
             all_labels.append(labels)
@@ -393,18 +409,71 @@ class EnhancedAMLPreprocessor:
             })
             progress_bar.update(len(df_chunk))
             
-            # Memory management
-            if chunk_idx % Config.GC_FREQUENCY == 0:
-                gc.collect()
+            # MEMORY OPTIMIZATION: Save to disk and clear memory every 20 chunks
+            if len(all_edge_features) >= 20:
+                # Combine current batch
+                batch_edge_features = np.vstack(all_edge_features)
+                batch_edge_indices = np.vstack(all_edge_indices)
+                batch_labels = np.concatenate(all_labels)
+                batch_timestamps = np.concatenate(all_timestamps)
+                
+                # Save to temporary file
+                self._save_chunk_to_temp(batch_edge_features, batch_edge_indices, 
+                                       batch_labels, batch_timestamps, chunk_idx)
+                
+                # Clear memory
+                all_edge_features = []
+                all_edge_indices = []
+                all_labels = []
+                all_timestamps = []
+                
+                # Force garbage collection
+                self._monitor_memory(force_gc=True)
+            
+            # Additional memory management
+            elif chunk_idx % 5 == 0:  # More frequent GC
+                self._monitor_memory(force_gc=True)
                 
         progress_bar.close()
         
-        # Combine all chunks
-        self.logger.info("Combining feature chunks...")
-        final_edge_features = np.vstack(all_edge_features)
-        final_edge_indices = np.vstack(all_edge_indices)
-        final_labels = np.concatenate(all_labels)
-        final_timestamps = np.concatenate(all_timestamps)
+        # MEMORY OPTIMIZATION: Combine chunks from temporary files and remaining data
+        self.logger.info("Combining feature chunks from temporary files...")
+        
+        # Save any remaining data
+        if all_edge_features:
+            batch_edge_features = np.vstack(all_edge_features)
+            batch_edge_indices = np.vstack(all_edge_indices)
+            batch_labels = np.concatenate(all_labels)
+            batch_timestamps = np.concatenate(all_timestamps)
+            self._save_chunk_to_temp(batch_edge_features, batch_edge_indices, 
+                                   batch_labels, batch_timestamps, 'final')
+        
+        # Load all temporary files
+        temp_files = list(self.temp_dir.glob(f'{self.dataset_name}_chunk_*.npz'))
+        
+        final_edge_features_list = []
+        final_edge_indices_list = []
+        final_labels_list = []
+        final_timestamps_list = []
+        
+        for temp_file in temp_files:
+            data = np.load(temp_file)
+            final_edge_features_list.append(data['edge_features'])
+            final_edge_indices_list.append(data['edge_indices'])
+            final_labels_list.append(data['labels'])
+            final_timestamps_list.append(data['timestamps'])
+            
+            # Clean up temporary file
+            temp_file.unlink()
+        
+        # Combine all data
+        final_edge_features = np.vstack(final_edge_features_list)
+        final_edge_indices = np.vstack(final_edge_indices_list)
+        final_labels = np.concatenate(final_labels_list)
+        final_timestamps = np.concatenate(final_timestamps_list)
+        
+        # Force garbage collection after combining
+        self._monitor_memory(force_gc=True)
         
         self.logger.info(f"Feature extraction completed:")
         self.logger.info(f"  Edge features shape: {final_edge_features.shape}")
@@ -445,10 +514,10 @@ class EnhancedAMLPreprocessor:
                 self.account_stats[dst_id]['timestamps'].append(row['Timestamp'])
     
     def create_enhanced_node_features(self, num_accounts, df_accounts):
-        """Create comprehensive node features with 25 dimensions"""
-        self.logger.info("Creating enhanced node features...")
+        """MEMORY OPTIMIZATION: Create reduced node features with 10 dimensions"""
+        self.logger.info("Creating memory-optimized node features...")
         
-        node_features = np.zeros((num_accounts, Config.NODE_FEATURE_DIM))
+        node_features = np.zeros((num_accounts, 10))  # Reduced from Config.NODE_FEATURE_DIM
         
         # Create account lookup for entity types
         account_to_entity = {}
@@ -461,53 +530,43 @@ class EnhancedAMLPreprocessor:
         for node_id in progress_bar:
             stats = self.account_stats[node_id]
             
-            # Basic entity information (features 0-2)
-            node_features[node_id, 0] = node_id % len(self.entity_le.classes_)  # Entity type proxy
-            node_features[node_id, 1] = node_id % 100  # Bank ID proxy
-            
-            # Transaction counts (features 2-4)
+            # MEMORY OPTIMIZATION: Reduced to 10 most important features
             total_txns = stats['outgoing_count'] + stats['incoming_count']
-            node_features[node_id, 2] = total_txns
-            node_features[node_id, 3] = stats['outgoing_count']
-            node_features[node_id, 4] = stats['incoming_count']
             
-            # Amount statistics (features 5-12)
+            # Feature 0: Total transaction count (log-scaled)
+            node_features[node_id, 0] = np.log10(total_txns + 1)
+            
+            # Feature 1: Outgoing transaction count (log-scaled)
+            node_features[node_id, 1] = np.log10(stats['outgoing_count'] + 1)
+            
+            # Feature 2: Incoming transaction count (log-scaled)
+            node_features[node_id, 2] = np.log10(stats['incoming_count'] + 1)
+            
+            # Feature 3: Average outgoing amount (log-scaled)
             if stats['outgoing_amounts']:
-                out_amounts = np.array(stats['outgoing_amounts'])
-                node_features[node_id, 5] = np.log10(np.mean(out_amounts))
-                node_features[node_id, 6] = np.log10(np.std(out_amounts) + 1)
-                node_features[node_id, 7] = np.log10(np.max(out_amounts))
-                node_features[node_id, 8] = np.log10(np.min(out_amounts))
+                node_features[node_id, 3] = np.log10(np.mean(stats['outgoing_amounts']))
             
+            # Feature 4: Average incoming amount (log-scaled)
             if stats['incoming_amounts']:
-                in_amounts = np.array(stats['incoming_amounts'])
-                node_features[node_id, 9] = np.log10(np.mean(in_amounts))
-                node_features[node_id, 10] = np.log10(np.std(in_amounts) + 1)
-                node_features[node_id, 11] = np.log10(np.max(in_amounts))
-                node_features[node_id, 12] = np.log10(np.min(in_amounts))
+                node_features[node_id, 4] = np.log10(np.mean(stats['incoming_amounts']))
             
-            # Suspicious activity rates (features 13-15)
+            # Feature 5: Overall suspicious rate
             if total_txns > 0:
-                node_features[node_id, 13] = (stats['outgoing_suspicious'] + stats['incoming_suspicious']) / total_txns
-                node_features[node_id, 14] = stats['outgoing_suspicious'] / max(stats['outgoing_count'], 1)
-                node_features[node_id, 15] = stats['incoming_suspicious'] / max(stats['incoming_count'], 1)
+                node_features[node_id, 5] = (stats['outgoing_suspicious'] + stats['incoming_suspicious']) / total_txns
             
-            # Temporal patterns (features 16-18)
-            all_hours = stats['outgoing_hours'] + stats['incoming_hours']
-            if all_hours:
-                node_features[node_id, 16] = np.mean(all_hours)  # Average transaction hour
-                node_features[node_id, 17] = np.std(all_hours)   # Hour variability
-                
-            # Activity diversity (features 18-21)
-            node_features[node_id, 18] = len(stats['payment_formats'])
-            node_features[node_id, 19] = len(stats['currencies'])
-            node_features[node_id, 20] = stats['cross_currency'] / max(total_txns, 1)
-            node_features[node_id, 21] = stats['round_amounts'] / max(total_txns, 1)
+            # Feature 6: Transaction imbalance (normalized)
+            if total_txns > 0:
+                node_features[node_id, 6] = abs(stats['outgoing_count'] - stats['incoming_count']) / total_txns
             
-            # Network behavior (features 22-24)
-            node_features[node_id, 22] = stats['self_transactions']
-            node_features[node_id, 23] = abs(stats['outgoing_count'] - stats['incoming_count'])  # Imbalance
-            node_features[node_id, 24] = max(stats['outgoing_count'], stats['incoming_count']) / max(total_txns, 1)  # Dominance
+            # Feature 7: Self-transaction count
+            node_features[node_id, 7] = stats['self_transactions']
+            
+            # Feature 8: Cross-currency transaction rate
+            if total_txns > 0:
+                node_features[node_id, 8] = stats['cross_currency'] / total_txns
+            
+            # Feature 9: Payment format diversity
+            node_features[node_id, 9] = len(stats['payment_formats'])
             
             if node_id % 10000 == 0:
                 progress_bar.set_postfix({'Processed': f'{node_id:,}'})
