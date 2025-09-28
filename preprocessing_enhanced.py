@@ -358,26 +358,33 @@ class EnhancedAMLPreprocessor:
             df_chunk['LargeAmount'] = (df_chunk['Amount Received'] > df_chunk['Amount Received'].quantile(0.95)).astype(float)
             df_chunk['SmallAmount'] = (df_chunk['Amount Received'] < df_chunk['Amount Received'].quantile(0.05)).astype(float)
             
-            # MEMORY OPTIMIZATION: Reduced edge features (10 features instead of 16)
-            edge_features = np.column_stack([
-                np.log10(df_chunk['Amount Received'].clip(lower=1)),      # 0
-                np.log10(df_chunk['Amount Paid'].clip(lower=1)),          # 1
-                df_chunk['Hour'] / 24.0,                                  # 2 - normalized
-                df_chunk['DayOfWeek'] / 7.0,                             # 3 - normalized
-                df_chunk['Month'] / 12.0,                                # 4 - normalized
-                df_chunk['RecCurrencyEnc'] / len(self.currency_le.classes_), # 5 - normalized
-                df_chunk['PayCurrencyEnc'] / len(self.currency_le.classes_), # 6 - normalized
-                df_chunk['PaymentFormatEnc'] / len(self.payment_le.classes_), # 7 - normalized
-                df_chunk['CrossCurrency'],                                # 8
-                df_chunk['SelfTransaction']                               # 9
-            ])
+            # 10GB RAM OPTIMIZATION: Vectorized feature extraction for speed
+            num_currencies = len(self.currency_le.classes_)
+            num_payment_formats = len(self.payment_le.classes_)
             
-            # Edge indices (filter out invalid mappings)
+            # Pre-allocate feature array for speed
+            edge_features = np.empty((len(df_chunk), 10), dtype=np.float32)
+            
+            # Vectorized operations - much faster than column_stack
+            edge_features[:, 0] = np.log10(df_chunk['Amount Received'].clip(lower=1))
+            edge_features[:, 1] = np.log10(df_chunk['Amount Paid'].clip(lower=1))
+            edge_features[:, 2] = df_chunk['Hour'].values / 24.0
+            edge_features[:, 3] = df_chunk['DayOfWeek'].values / 7.0
+            edge_features[:, 4] = df_chunk['Month'].values / 12.0
+            edge_features[:, 5] = df_chunk['RecCurrencyEnc'].values / num_currencies
+            edge_features[:, 6] = df_chunk['PayCurrencyEnc'].values / num_currencies
+            edge_features[:, 7] = df_chunk['PaymentFormatEnc'].values / num_payment_formats
+            edge_features[:, 8] = df_chunk['CrossCurrency'].values
+            edge_features[:, 9] = df_chunk['SelfTransaction'].values
+            
+            # 10GB RAM OPTIMIZATION: Faster edge indices creation
             valid_mask = df_chunk['SrcID'].notna() & df_chunk['DstID'].notna()
-            edge_indices = np.column_stack([
-                df_chunk.loc[valid_mask, 'SrcID'].astype(int),
-                df_chunk.loc[valid_mask, 'DstID'].astype(int)
-            ])
+            
+            # Pre-allocate and use vectorized operations for speed
+            valid_count = valid_mask.sum()
+            edge_indices = np.empty((valid_count, 2), dtype=np.int64)
+            edge_indices[:, 0] = df_chunk.loc[valid_mask, 'SrcID'].values.astype(int)
+            edge_indices[:, 1] = df_chunk.loc[valid_mask, 'DstID'].values.astype(int)
             
             # Labels and timestamps
             labels = df_chunk.loc[valid_mask, 'Is Laundering'].values
@@ -409,8 +416,9 @@ class EnhancedAMLPreprocessor:
             })
             progress_bar.update(len(df_chunk))
             
-            # OPTIMIZED FOR 10GB RAM: Save to disk less frequently for speed
-            if len(all_edge_features) >= 100:  # Increased from 20 to 100 chunks
+            # 10GB RAM OPTIMIZATION: Only save to disk if memory gets very high
+            current_memory_mb = self.process.memory_info().rss / 1024 / 1024
+            if len(all_edge_features) >= 200 or current_memory_mb > 6500:  # Much higher threshold or memory limit
                 # Combine current batch
                 batch_edge_features = np.vstack(all_edge_features)
                 batch_edge_indices = np.vstack(all_edge_indices)
@@ -436,41 +444,53 @@ class EnhancedAMLPreprocessor:
                 
         progress_bar.close()
         
-        # MEMORY OPTIMIZATION: Combine chunks from temporary files and remaining data
-        self.logger.info("Combining feature chunks from temporary files...")
-        
-        # Save any remaining data
-        if all_edge_features:
-            batch_edge_features = np.vstack(all_edge_features)
-            batch_edge_indices = np.vstack(all_edge_indices)
-            batch_labels = np.concatenate(all_labels)
-            batch_timestamps = np.concatenate(all_timestamps)
-            self._save_chunk_to_temp(batch_edge_features, batch_edge_indices, 
-                                   batch_labels, batch_timestamps, 'final')
-        
-        # Load all temporary files
+        # 10GB RAM OPTIMIZATION: Check if we have temp files or can combine directly in memory
         temp_files = list(self.temp_dir.glob(f'{self.dataset_name}_chunk_*.npz'))
         
-        final_edge_features_list = []
-        final_edge_indices_list = []
-        final_labels_list = []
-        final_timestamps_list = []
-        
-        for temp_file in temp_files:
-            data = np.load(temp_file)
-            final_edge_features_list.append(data['edge_features'])
-            final_edge_indices_list.append(data['edge_indices'])
-            final_labels_list.append(data['labels'])
-            final_timestamps_list.append(data['timestamps'])
+        if temp_files:
+            # We used streaming - combine from temporary files
+            self.logger.info("Combining feature chunks from temporary files...")
             
-            # Clean up temporary file
-            temp_file.unlink()
-        
-        # Combine all data
-        final_edge_features = np.vstack(final_edge_features_list)
-        final_edge_indices = np.vstack(final_edge_indices_list)
-        final_labels = np.concatenate(final_labels_list)
-        final_timestamps = np.concatenate(final_timestamps_list)
+            # Save any remaining data
+            if all_edge_features:
+                batch_edge_features = np.vstack(all_edge_features)
+                batch_edge_indices = np.vstack(all_edge_indices)
+                batch_labels = np.concatenate(all_labels)
+                batch_timestamps = np.concatenate(all_timestamps)
+                self._save_chunk_to_temp(batch_edge_features, batch_edge_indices, 
+                                       batch_labels, batch_timestamps, 'final')
+            
+            # Reload temp files list after potentially adding final chunk
+            temp_files = list(self.temp_dir.glob(f'{self.dataset_name}_chunk_*.npz'))
+            
+            final_edge_features_list = []
+            final_edge_indices_list = []
+            final_labels_list = []
+            final_timestamps_list = []
+            
+            for temp_file in temp_files:
+                data = np.load(temp_file)
+                final_edge_features_list.append(data['edge_features'])
+                final_edge_indices_list.append(data['edge_indices'])
+                final_labels_list.append(data['labels'])
+                final_timestamps_list.append(data['timestamps'])
+                
+                # Clean up temporary file
+                temp_file.unlink()
+            
+            # Combine all data
+            final_edge_features = np.vstack(final_edge_features_list)
+            final_edge_indices = np.vstack(final_edge_indices_list)
+            final_labels = np.concatenate(final_labels_list)
+            final_timestamps = np.concatenate(final_timestamps_list)
+            
+        else:
+            # 10GB RAM OPTIMIZATION: Everything stayed in memory - much faster!
+            self.logger.info("Combining feature chunks directly from memory (faster!)...")
+            final_edge_features = np.vstack(all_edge_features)
+            final_edge_indices = np.vstack(all_edge_indices)
+            final_labels = np.concatenate(all_labels)
+            final_timestamps = np.concatenate(all_timestamps)
         
         # Force garbage collection after combining
         self._monitor_memory(force_gc=True)
