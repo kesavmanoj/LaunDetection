@@ -1,5 +1,6 @@
 # ============================================================================
-# GOOGLE COLAB SCRIPT - MEMORY-OPTIMIZED PREPROCESSING FOR SMALL & MEDIUM DATASETS
+# GOOGLE COLAB SCRIPT - 10GB RAM OPTIMIZED PREPROCESSING FOR SMALL & MEDIUM DATASETS
+# Optimized for 10GB RAM Colab environments - faster processing with larger chunks
 # Copy and paste this entire cell into Google Colab
 # ============================================================================
 
@@ -54,10 +55,10 @@ class ColabConfig:
         'LI-Medium': {'accounts_file': 'LI-Medium_accounts.csv', 'transactions_file': 'LI-Medium_Trans.csv'}
     }
     
-    # Memory-optimized parameters for Colab
-    DEFAULT_CHUNK_SIZE = 5000  # Smaller chunks
-    MAX_MEMORY_USAGE_GB = 3    # Conservative limit
-    GC_FREQUENCY = 5           # More frequent GC
+    # OPTIMIZED FOR 10GB RAM: Larger chunks for speed
+    DEFAULT_CHUNK_SIZE = 25000  # Larger chunks for faster processing
+    MAX_MEMORY_USAGE_GB = 8     # Use up to 8GB of 10GB available
+    GC_FREQUENCY = 20           # Less frequent GC for speed
     
     TRAIN_RATIO = 0.7
     VAL_RATIO = 0.15
@@ -103,7 +104,7 @@ def check_memory():
 def process_small_medium_datasets():
     """Process only small and medium datasets with memory optimization"""
     
-    print("🚀 MEMORY-OPTIMIZED PREPROCESSING FOR SMALL & MEDIUM DATASETS")
+    print("🚀 10GB RAM OPTIMIZED PREPROCESSING FOR SMALL & MEDIUM DATASETS")
     print("="*80)
     
     # Target datasets (small and medium only)
@@ -173,24 +174,27 @@ def process_small_medium_datasets():
         used, total, percent = check_memory()
         print(f"💾 Memory before: {used:.1f}/{total:.1f} GB ({percent:.1f}%)")
         
-        # Determine optimal chunk size based on dataset size and available memory
+        # OPTIMIZED FOR 10GB RAM: Larger chunk sizes for faster processing
         total_size_mb = dataset_info[dataset]['total_size']
         available_memory_gb = total - used
         
         if total_size_mb < 50:
-            chunk_size = 8000
+            chunk_size = 50000  # Much larger for small datasets
         elif total_size_mb < 150:
-            chunk_size = 5000
+            chunk_size = 35000  # Larger for small-medium datasets
         elif total_size_mb < 300:
-            chunk_size = 3000
+            chunk_size = 25000  # Larger for medium datasets
+        elif total_size_mb < 500:
+            chunk_size = 15000  # Still larger for larger datasets
         else:
-            chunk_size = 2000
+            chunk_size = 10000  # Conservative for very large datasets
         
-        # Adjust chunk size based on available memory
-        if available_memory_gb < 2:
-            chunk_size = min(chunk_size, 2000)
-        elif available_memory_gb < 4:
-            chunk_size = min(chunk_size, 3000)
+        # Adjust chunk size based on available memory (more aggressive)
+        if available_memory_gb < 4:
+            chunk_size = min(chunk_size, 15000)
+        elif available_memory_gb < 6:
+            chunk_size = min(chunk_size, 25000)
+        # No limit if we have 6GB+ available
         
         print(f"📊 Dataset: {total_size_mb:.1f} MB, Available memory: {available_memory_gb:.1f} GB")
         print(f"⚙️ Using chunk size: {chunk_size:,}")

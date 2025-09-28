@@ -94,15 +94,15 @@ class EnhancedAMLPreprocessor:
         memory_mb = self.process.memory_info().rss / 1024 / 1024
         self.max_memory_mb = max(self.max_memory_mb, memory_mb)
         
-        # MEMORY OPTIMIZATION: More aggressive garbage collection
-        if memory_mb > 2000 or force_gc:  # Force GC at 2GB instead of 8GB
+        # OPTIMIZED FOR 10GB RAM: Less aggressive garbage collection for speed
+        if memory_mb > 7000 or force_gc:  # Force GC at 7GB for 10GB system
             self.logger.debug(f"Forcing garbage collection at {memory_mb:.1f} MB")
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             memory_mb = self.process.memory_info().rss / 1024 / 1024
             
-        if memory_mb > Config.MAX_MEMORY_USAGE_GB * 1024:
+        if memory_mb > 8500:  # Warning at 8.5GB
             self.logger.warning(f"High memory usage: {memory_mb:.1f} MB")
             
         return memory_mb
@@ -409,8 +409,8 @@ class EnhancedAMLPreprocessor:
             })
             progress_bar.update(len(df_chunk))
             
-            # MEMORY OPTIMIZATION: Save to disk and clear memory every 20 chunks
-            if len(all_edge_features) >= 20:
+            # OPTIMIZED FOR 10GB RAM: Save to disk less frequently for speed
+            if len(all_edge_features) >= 100:  # Increased from 20 to 100 chunks
                 # Combine current batch
                 batch_edge_features = np.vstack(all_edge_features)
                 batch_edge_indices = np.vstack(all_edge_indices)
@@ -430,9 +430,9 @@ class EnhancedAMLPreprocessor:
                 # Force garbage collection
                 self._monitor_memory(force_gc=True)
             
-            # Additional memory management
-            elif chunk_idx % 5 == 0:  # More frequent GC
-                self._monitor_memory(force_gc=True)
+            # Additional memory management - less frequent for speed
+            elif chunk_idx % 20 == 0:  # Reduced frequency from 5 to 20
+                self._monitor_memory()
                 
         progress_bar.close()
         
