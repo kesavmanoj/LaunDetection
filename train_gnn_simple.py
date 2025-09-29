@@ -205,6 +205,8 @@ def train_model_with_memory_management(model, train_data, val_data, epochs=50, l
     criterion = nn.CrossEntropyLoss(weight=class_weights)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5, factor=0.5)
+    use_amp = str(device_obj).startswith('cuda') and torch.cuda.is_available()
+    scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
     
     # Training history
     history = {'train_loss': [], 'val_loss': [], 'val_f1': []}
@@ -223,20 +225,31 @@ def train_model_with_memory_management(model, train_data, val_data, epochs=50, l
             print(f"🔍 GPU memory before first forward pass: {memory_before_forward:.2f} GB")
         
         try:
-            # Forward pass with debugging
-            logits = model(train_data.x, train_data.edge_index, train_data.edge_attr)
-            
-            if str(device_obj).startswith('cuda') and epoch == 0:
-                memory_after_forward = torch.cuda.memory_allocated() / 1024**3
-                print(f"🔍 GPU memory after forward pass: {memory_after_forward:.2f} GB")
-                print(f"🔍 Forward pass used: {memory_after_forward - memory_before_forward:.2f} GB")
-            
-            loss = criterion(logits, train_data.y)
-            loss.backward()
-            
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            optimizer.step()
-            
+            # Forward pass with debugging (AMP)
+            with torch.cuda.amp.autocast(enabled=use_amp):
+                logits = model(train_data.x, train_data.edge_index, train_data.edge_attr)
+                if str(device_obj).startswith('cuda') and epoch == 0:
+                    memory_after_forward = torch.cuda.memory_allocated() / 1024**3
+                    print(f"🔍 GPU memory after forward pass: {memory_after_forward:.2f} GB")
+                    print(f"🔍 Forward pass used: {memory_after_forward - memory_before_forward:.2f} GB")
+                loss = criterion(logits, train_data.y)
+
+            optimizer.zero_grad(set_to_none=True)
+            if use_amp:
+                scaler.scale(loss).backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                optimizer.step()
+
+            # Free large tensors promptly
+            del logits
+            if str(device_obj).startswith('cuda'):
+                torch.cuda.empty_cache()
+
         except RuntimeError as e:
             if "out of memory" in str(e):
                 print(f"❌ GPU OOM during training at epoch {epoch}")
@@ -248,10 +261,13 @@ def train_model_with_memory_management(model, train_data, val_data, epochs=50, l
                 model = model.cpu()
                 train_data = train_data.cpu()
                 val_data = val_data.cpu()
+                use_amp = False
+                scaler = torch.cuda.amp.GradScaler(enabled=False)
                 
                 # Retry forward pass on CPU
                 logits = model(train_data.x, train_data.edge_index, train_data.edge_attr)
                 loss = criterion(logits, train_data.y)
+                optimizer.zero_grad(set_to_none=True)
                 loss.backward()
                 optimizer.step()
             else:
@@ -262,8 +278,9 @@ def train_model_with_memory_management(model, train_data, val_data, epochs=50, l
         with torch.no_grad():
             # Move validation data to device temporarily
             val_data_device = val_data.to(device)
-            val_logits = model(val_data_device.x, val_data_device.edge_index, val_data_device.edge_attr)
-            val_loss = criterion(val_logits, val_data_device.y)
+            with torch.cuda.amp.autocast(enabled=use_amp):
+                val_logits = model(val_data_device.x, val_data_device.edge_index, val_data_device.edge_attr)
+                val_loss = criterion(val_logits, val_data_device.y)
             val_preds = val_logits.argmax(dim=1)
             val_f1 = f1_score(val_data_device.y.cpu(), val_preds.cpu(), average='binary')
             # Free GPU memory used by validation
@@ -371,6 +388,8 @@ def main():
     print("="*50)
     
     # Setup
+    # Reduce fragmentation before CUDA context creation
+    os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
     device = setup_device()
     
     # MEMORY OPTIMIZATION: Start with single dataset if GPU memory is limited
@@ -387,11 +406,11 @@ def main():
     # Reduce model size for large graphs to prevent GPU OOM
     if train_data.num_edges > 3000000:  # Large graph
         hidden_dim = 64
-        num_heads = 4
+        num_heads = 2
         print(f"🔧 Large graph detected ({train_data.num_edges:,} edges), using smaller models")
     else:
         hidden_dim = 128
-        num_heads = 8
+        num_heads = 4
         print(f"🔧 Standard graph size ({train_data.num_edges:,} edges), using full-size models")
     
     models = {
@@ -407,6 +426,7 @@ def main():
             edge_feature_dim=edge_features,
             hidden_dim=hidden_dim,
             num_heads=num_heads,
+            num_layers=2 if train_data.num_edges > 3000000 else 3,
             dropout=0.3,
             use_edge_features=True
         ),
@@ -450,7 +470,12 @@ def main():
         histories.append(history)
         model_names.append(model_name)
         
-        # Clear GPU cache after training each model
+        # Move trained model to CPU and free GPU memory before starting next model
+        try:
+            trained_models[model_name] = trained_model.cpu()
+        except Exception:
+            pass
+        del model, trained_model, history
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
             print(f" GPU cache cleared after {model_name}")
