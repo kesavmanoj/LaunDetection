@@ -49,7 +49,7 @@ class ColabConfig:
     LOGS_DIR = LOGS_DIR
     
     DATASET_CONFIGS = {
-        'HI-Small': {'accounts_file': 'HI-Small_accounts.csv', 'transactions_file': 'HI-Small_Trans.csv'},
+        # 'HI-Small': Already processed - skipping
         'HI-Medium': {'accounts_file': 'HI-Medium_accounts.csv', 'transactions_file': 'HI-Medium_Trans.csv'},
         'LI-Small': {'accounts_file': 'LI-Small_accounts.csv', 'transactions_file': 'LI-Small_Trans.csv'},
         'LI-Medium': {'accounts_file': 'LI-Medium_accounts.csv', 'transactions_file': 'LI-Medium_Trans.csv'}
@@ -104,11 +104,12 @@ def check_memory():
 def process_small_medium_datasets():
     """Process only small and medium datasets with memory optimization"""
     
-    print("🚀 10GB RAM OPTIMIZED PREPROCESSING FOR SMALL & MEDIUM DATASETS")
+    print("🚀 10GB RAM OPTIMIZED PREPROCESSING FOR REMAINING DATASETS")
+    print("Processing: HI-Medium, LI-Small, LI-Medium (HI-Small already completed)")
     print("="*80)
     
-    # Target datasets (small and medium only)
-    target_datasets = ['HI-Small', 'HI-Medium', 'LI-Small', 'LI-Medium']
+    # Target datasets (excluding HI-Small which is already processed)
+    target_datasets = ['HI-Medium', 'LI-Small', 'LI-Medium']
     
     # Check available datasets
     available_datasets = []
