@@ -355,13 +355,17 @@ def calculate_class_weights(train_data):
     return torch.tensor([neg_weight, pos_weight], dtype=torch.float32)
 
 def train_model(model, train_data, val_data, epochs=50, lr=0.001, device='cpu'):
-    """Train a single model"""
+    """Train a single model with memory-efficient batch processing"""
     
     # CUDA DEBUGGING: Enable blocking for better error messages
     if device == 'cuda':
         import os
         os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
         print("🔧 CUDA_LAUNCH_BLOCKING enabled for debugging")
+        
+        # GPU MEMORY OPTIMIZATION: Set memory fraction and enable memory-efficient attention
+        torch.cuda.set_per_process_memory_fraction(0.9)  # Use 90% of GPU memory
+        print("🔧 GPU memory fraction set to 90%")
     
     # CUDA FIX: Safe model transfer to device
     print(f"🔄 Moving model to {device}...")
@@ -417,30 +421,112 @@ def train_model(model, train_data, val_data, epochs=50, lr=0.001, device='cpu'):
     
     print(f"🚀 Training on {device}")
     
+    # GPU MEMORY OPTIMIZATION: Check if we need batch processing
+    if device == 'cuda' and train_data.num_edges > 3000000:  # 3M edges threshold
+        print(f"🔧 Large dataset detected ({train_data.num_edges:,} edges)")
+        print(f"🔧 Using gradient accumulation to fit in GPU memory")
+        use_gradient_accumulation = True
+        accumulation_steps = 4  # Process in 4 mini-batches
+    else:
+        use_gradient_accumulation = False
+        accumulation_steps = 1
+    
     for epoch in range(epochs):
         # Training
         model.train()
-        optimizer.zero_grad()
+        epoch_loss = 0
         
-        logits = model(train_data.x, train_data.edge_index, train_data.edge_attr)
-        loss = criterion(logits, train_data.y)
-        loss.backward()
+        if use_gradient_accumulation:
+            # GPU MEMORY OPTIMIZATION: Gradient accumulation for large graphs
+            optimizer.zero_grad()
+            
+            # Split edges into mini-batches
+            num_edges = train_data.num_edges
+            batch_size = num_edges // accumulation_steps
+            
+            for step in range(accumulation_steps):
+                start_idx = step * batch_size
+                end_idx = min((step + 1) * batch_size, num_edges)
+                
+                # Create mini-batch
+                edge_mask = torch.arange(start_idx, end_idx, device=device)
+                mini_edge_index = train_data.edge_index[:, edge_mask]
+                mini_edge_attr = train_data.edge_attr[edge_mask]
+                mini_y = train_data.y[edge_mask]
+                
+                # Forward pass on mini-batch
+                logits = model(train_data.x, mini_edge_index, mini_edge_attr)
+                loss = criterion(logits, mini_y)
+                
+                # Scale loss by accumulation steps
+                loss = loss / accumulation_steps
+                loss.backward()
+                
+                epoch_loss += loss.item()
+                
+                # Clear intermediate tensors
+                del logits, mini_edge_index, mini_edge_attr, mini_y
+                if step < accumulation_steps - 1:  # Don't clear on last step
+                    torch.cuda.empty_cache()
+            
+            # Update weights after accumulating gradients
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            optimizer.step()
+            
+        else:
+            # Standard training for smaller datasets
+            optimizer.zero_grad()
+            logits = model(train_data.x, train_data.edge_index, train_data.edge_attr)
+            loss = criterion(logits, train_data.y)
+            loss.backward()
+            
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            optimizer.step()
+            epoch_loss = loss.item()
         
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-        optimizer.step()
-        
-        # Validation
+        # Validation with memory optimization
         model.eval()
         with torch.no_grad():
-            val_logits = model(val_data.x, val_data.edge_index, val_data.edge_attr)
-            val_loss = criterion(val_logits, val_data.y)
+            if device == 'cuda' and val_data.num_edges > 1000000:  # 1M edges threshold for validation
+                # Batch validation for large validation sets
+                val_losses = []
+                val_preds_list = []
+                val_batch_size = val_data.num_edges // 2  # Split validation in half
+                
+                for val_step in range(2):
+                    start_idx = val_step * val_batch_size
+                    end_idx = min((val_step + 1) * val_batch_size, val_data.num_edges)
+                    
+                    val_edge_mask = torch.arange(start_idx, end_idx, device=device)
+                    val_mini_edge_index = val_data.edge_index[:, val_edge_mask]
+                    val_mini_edge_attr = val_data.edge_attr[val_edge_mask]
+                    val_mini_y = val_data.y[val_edge_mask]
+                    
+                    val_mini_logits = model(val_data.x, val_mini_edge_index, val_mini_edge_attr)
+                    val_mini_loss = criterion(val_mini_logits, val_mini_y)
+                    
+                    val_losses.append(val_mini_loss.item())
+                    val_preds_list.append(val_mini_logits.argmax(dim=1))
+                    
+                    # Cleanup
+                    del val_mini_logits, val_mini_edge_index, val_mini_edge_attr, val_mini_y
+                    if val_step == 0:  # Clear cache between batches
+                        torch.cuda.empty_cache()
+                
+                val_loss = sum(val_losses) / len(val_losses)
+                val_preds = torch.cat(val_preds_list)
+                
+            else:
+                # Standard validation for smaller datasets
+                val_logits = model(val_data.x, val_data.edge_index, val_data.edge_attr)
+                val_loss = criterion(val_logits, val_data.y)
+                val_preds = val_logits.argmax(dim=1)
             
-            val_preds = val_logits.argmax(dim=1)
             val_f1 = f1_score(val_data.y.cpu(), val_preds.cpu(), average='binary')
         
         # Update history
-        history['train_loss'].append(loss.item())
-        history['val_loss'].append(val_loss.item())
+        history['train_loss'].append(epoch_loss)
+        history['val_loss'].append(val_loss if isinstance(val_loss, float) else val_loss.item())
         history['val_f1'].append(val_f1)
         
         # Learning rate scheduling
@@ -572,10 +658,18 @@ def main():
             print(f"  Memory reserved: {memory_reserved:.2f} GB")
             
             # CUDA SAFETY: Check if reserved memory is too high (indicates corruption)
-            if memory_reserved > 6.0:  # More than 6GB reserved is suspicious
+            if memory_reserved > CUDA_MEMORY_THRESHOLD:
                 print(f"  ⚠️ High reserved memory detected ({memory_reserved:.2f} GB)")
-                print(f"  🔄 CUDA may be corrupted, switching to CPU for safety")
-                device = torch.device('cpu')
+                print(f"  🔄 CUDA may be corrupted!")
+                
+                if REQUIRE_GPU_MODE:
+                    print(f"  ❌ REQUIRE_GPU_MODE is enabled - cannot proceed with corrupted CUDA")
+                    print(f"  🔄 SOLUTION: Restart Colab runtime to clear CUDA memory")
+                    print(f"     Go to Runtime → Restart Runtime, then re-run")
+                    raise RuntimeError("CUDA memory corrupted and GPU training required")
+                else:
+                    print(f"  🔄 Switching to CPU for safety")
+                    device = torch.device('cpu')
             else:
                 # Try to clear cache safely
                 print(f"  🔄 Attempting to clear CUDA cache...")
@@ -595,7 +689,15 @@ def main():
             print(f"  🔄 CUDA appears corrupted, falling back to CPU")
             device = torch.device('cpu')
     else:
-        print("🔧 CUDA not available, using CPU")
+        print("🔧 CUDA not available")
+        if REQUIRE_GPU_MODE:
+            print("❌ REQUIRE_GPU_MODE is enabled but CUDA not available!")
+            print("🔄 SOLUTION: Change Colab runtime to GPU")
+            print("   Go to Runtime → Change Runtime Type → Hardware Accelerator → GPU")
+            raise RuntimeError("GPU required but CUDA not available")
+        else:
+            print("🔄 Using CPU")
+            device = torch.device('cpu')
     
     # FINAL DEVICE CHECK
     print(f"🎯 Final device selection: {device}")
@@ -716,8 +818,10 @@ def main():
     
     return trained_models, results
 
-# CUDA SAFETY: Option to force CPU mode
-FORCE_CPU_MODE = False  # Set to True if CUDA keeps failing
+# CUDA SETTINGS: Configure CUDA behavior
+FORCE_CPU_MODE = False      # Set to True to force CPU training
+REQUIRE_GPU_MODE = True     # Set to True to REQUIRE GPU training (fail if no GPU)
+CUDA_MEMORY_THRESHOLD = 6.0 # GB of reserved memory before considering corruption
 
 # Run the training pipeline
 if __name__ == "__main__":
