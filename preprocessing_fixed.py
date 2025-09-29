@@ -237,7 +237,8 @@ class FixedAMLPreprocessor:
             # Create edge features
             edge_features = self._extract_edge_features(df_valid)
             
-            # Create edge indices (now guaranteed to be valid)
+            # Create edge indices - CRITICAL: These are still using original node IDs
+            # We need to remap them to a contiguous range [0, num_unique_nodes)
             edge_indices = np.column_stack([
                 df_valid['SrcID'].values.astype(int),
                 df_valid['DstID'].values.astype(int)
@@ -271,29 +272,49 @@ class FixedAMLPreprocessor:
         final_labels = np.concatenate(all_labels)
         final_timestamps = np.concatenate(all_timestamps)
         
+        # CRITICAL FIX: Remap edge indices to contiguous range
+        self.logger.info("Remapping edge indices to contiguous range...")
+        
+        # Find all unique node IDs actually used in transactions
+        unique_nodes_in_edges = np.unique(final_edge_indices.flatten())
+        self.logger.info(f"  Unique nodes in transactions: {len(unique_nodes_in_edges):,}")
+        self.logger.info(f"  Node ID range in edges: [{unique_nodes_in_edges.min()}, {unique_nodes_in_edges.max()}]")
+        
+        # Create new contiguous mapping: old_node_id -> new_node_id
+        old_to_new_mapping = {old_id: new_id for new_id, old_id in enumerate(unique_nodes_in_edges)}
+        
+        # Remap edge indices
+        remapped_edge_indices = np.zeros_like(final_edge_indices)
+        for i in range(final_edge_indices.shape[0]):
+            remapped_edge_indices[i, 0] = old_to_new_mapping[final_edge_indices[i, 0]]
+            remapped_edge_indices[i, 1] = old_to_new_mapping[final_edge_indices[i, 1]]
+        
+        # Update the account mapping for node features
+        self.remapped_account_to_node = old_to_new_mapping
+        self.num_nodes_used = len(unique_nodes_in_edges)
+        
         # Final statistics
         self.logger.info(f"Transaction processing completed:")
         self.logger.info(f"  Total transactions processed: {total_processed:,}")
         self.logger.info(f"  Valid transactions kept: {valid_transactions:,} ({valid_transactions/total_processed*100:.2f}%)")
         self.logger.info(f"  Invalid transactions filtered: {filtered_transactions:,} ({filtered_transactions/total_processed*100:.2f}%)")
         self.logger.info(f"  Final edge features shape: {final_edge_features.shape}")
-        self.logger.info(f"  Final edge indices shape: {final_edge_indices.shape}")
+        self.logger.info(f"  Final edge indices shape: {remapped_edge_indices.shape}")
         
-        # Verify edge indices are valid
-        max_node_id = len(self.account_to_node) - 1
-        max_edge_idx = final_edge_indices.max()
-        min_edge_idx = final_edge_indices.min()
+        # Verify remapped edge indices are valid
+        max_edge_idx = remapped_edge_indices.max()
+        min_edge_idx = remapped_edge_indices.min()
         
-        self.logger.info(f"Edge index validation:")
-        self.logger.info(f"  Max node ID available: {max_node_id}")
+        self.logger.info(f"Edge index validation after remapping:")
+        self.logger.info(f"  Nodes actually used: {self.num_nodes_used:,}")
         self.logger.info(f"  Edge indices range: [{min_edge_idx}, {max_edge_idx}]")
         
-        if max_edge_idx > max_node_id or min_edge_idx < 0:
-            raise ValueError(f"Invalid edge indices detected! This should not happen with fixed preprocessing.")
+        if max_edge_idx >= self.num_nodes_used or min_edge_idx < 0:
+            raise ValueError(f"Invalid edge indices after remapping! Range: [{min_edge_idx}, {max_edge_idx}], Nodes: {self.num_nodes_used}")
         else:
-            self.logger.info(f"  ✅ All edge indices are valid!")
+            self.logger.info(f"  ✅ All edge indices are valid after remapping!")
         
-        return final_edge_features, final_edge_indices, final_labels, final_timestamps
+        return final_edge_features, remapped_edge_indices, final_labels, final_timestamps
     
     def _extract_edge_features(self, df_chunk):
         """Extract edge features from transaction chunk"""
@@ -335,47 +356,50 @@ class FixedAMLPreprocessor:
         return edge_features
     
     def create_node_features(self):
-        """Create node features from accounts"""
-        self.logger.info("Creating node features...")
+        """Create node features from accounts using only nodes that appear in transactions"""
+        self.logger.info("Creating node features for nodes used in transactions...")
         
-        # Sort accounts by the mapping order
-        sorted_accounts = sorted(self.account_to_node.items(), key=lambda x: x[1])
-        account_ids_ordered = [acc_id for acc_id, _ in sorted_accounts]
+        # Use only the nodes that actually appear in transactions
+        num_nodes = self.num_nodes_used
+        node_features = np.zeros((num_nodes, 10))
         
         # Create mapping from AccountID back to accounts dataframe
         accounts_with_id = self.accounts_df.set_index('AccountID')
         
-        # Initialize node features
-        num_nodes = len(self.account_to_node)
-        node_features = np.zeros((num_nodes, 10))
+        # Create reverse mapping from old node ID to account ID
+        old_node_to_account = {v: k for k, v in self.account_to_node.items()}
         
-        for node_idx, account_id in enumerate(account_ids_ordered):
-            if account_id in accounts_with_id.index:
-                account_row = accounts_with_id.loc[account_id]
+        # Iterate through remapped nodes
+        for old_node_id, new_node_id in self.remapped_account_to_node.items():
+            if old_node_id in old_node_to_account:
+                account_id = old_node_to_account[old_node_id]
                 
-                # Basic account features
-                node_features[node_idx, 0] = 1.0  # Account exists
-                
-                # Use Bank ID for hashing (more stable than Bank Name)
-                bank_id = account_row.get('Bank ID', account_row.get('Bank Name', ''))
-                node_features[node_idx, 1] = hash(str(bank_id)) % 1000 / 1000.0
-                
-                # Entity features
-                entity_id = account_row.get('Entity ID', '')
-                node_features[node_idx, 2] = hash(str(entity_id)) % 1000 / 1000.0
-                
-                # Entity type (Corporation vs Sole Proprietorship)
-                entity_name = str(account_row.get('Entity Name', ''))
-                if 'corporation' in entity_name.lower():
-                    node_features[node_idx, 3] = 1.0
-                elif 'sole proprietorship' in entity_name.lower():
-                    node_features[node_idx, 3] = 0.5
-                else:
-                    node_features[node_idx, 3] = 0.0
-                
-                # Fill remaining features with defaults
-                for i in range(4, 10):
-                    node_features[node_idx, i] = 0.1 * i  # Simple default features
+                if account_id in accounts_with_id.index:
+                    account_row = accounts_with_id.loc[account_id]
+                    
+                    # Basic account features
+                    node_features[new_node_id, 0] = 1.0  # Account exists
+                    
+                    # Use Bank ID for hashing (more stable than Bank Name)
+                    bank_id = account_row.get('Bank ID', account_row.get('Bank Name', ''))
+                    node_features[new_node_id, 1] = hash(str(bank_id)) % 1000 / 1000.0
+                    
+                    # Entity features
+                    entity_id = account_row.get('Entity ID', '')
+                    node_features[new_node_id, 2] = hash(str(entity_id)) % 1000 / 1000.0
+                    
+                    # Entity type (Corporation vs Sole Proprietorship)
+                    entity_name = str(account_row.get('Entity Name', ''))
+                    if 'corporation' in entity_name.lower():
+                        node_features[new_node_id, 3] = 1.0
+                    elif 'sole proprietorship' in entity_name.lower():
+                        node_features[new_node_id, 3] = 0.5
+                    else:
+                        node_features[new_node_id, 3] = 0.0
+                    
+                    # Fill remaining features with defaults
+                    for i in range(4, 10):
+                        node_features[new_node_id, i] = 0.1 * i  # Simple default features
         
         self.logger.info(f"Created node features: {node_features.shape}")
         return node_features
@@ -450,6 +474,7 @@ class FixedAMLPreprocessor:
                 edge_attr=edge_attr[test_indices],
                 y=y[test_indices]
             ),
+            'complete': complete_data,  # Add complete data
             'metadata': {
                 'num_nodes': len(node_features),
                 'num_edges': len(labels),
@@ -460,12 +485,18 @@ class FixedAMLPreprocessor:
             }
         }
         
-        # Save files
-        output_file = self.graphs_dir / f'ibm_aml_{self.dataset_name.lower()}_fixed_splits.pt'
-        torch.save(splits_data, output_file)
+        # Save splits file
+        splits_file = self.graphs_dir / f'ibm_aml_{self.dataset_name.lower()}_fixed_splits.pt'
+        torch.save(splits_data, splits_file)
         
-        self.logger.info(f"Saved processed data to: {output_file}")
-        self.logger.info(f"File size: {output_file.stat().st_size / 1024**2:.1f} MB")
+        # Save complete file separately
+        complete_file = self.graphs_dir / f'ibm_aml_{self.dataset_name.lower()}_fixed_complete.pt'
+        torch.save(complete_data, complete_file)
+        
+        self.logger.info(f"Saved splits data to: {splits_file}")
+        self.logger.info(f"Saved complete data to: {complete_file}")
+        self.logger.info(f"Splits file size: {splits_file.stat().st_size / 1024**2:.1f} MB")
+        self.logger.info(f"Complete file size: {complete_file.stat().st_size / 1024**2:.1f} MB")
         
         return complete_data, splits_data
     

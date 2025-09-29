@@ -149,13 +149,12 @@ def calculate_class_weights(train_data):
     neg_count = len(labels) - pos_count
     
     pos_weight = len(labels) / (2 * pos_count)
-    neg_weight = len(labels) / (2 * neg_count)
     
     print(f"Class distribution: {neg_count:,} negative, {pos_count:,} positive ({pos_count/len(labels)*100:.2f}% positive)")
     
     return torch.tensor([neg_weight, pos_weight], dtype=torch.float32)
 
-def train_model(model, train_data, val_data, device, epochs=50, lr=0.001):
+def train_model_with_memory_management(model, train_data, val_data, epochs=50, lr=0.001, device='cuda', max_edges_per_batch=1000000):
     """Train a single model with memory optimization and debugging"""
     print(f"🚀 Training {model.__class__.__name__} on {device}")
     
