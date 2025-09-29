@@ -380,27 +380,37 @@ def main():
     node_features = train_data.x.shape[1]
     edge_features = train_data.edge_attr.shape[1]
     
-    # Define optimized models for AML detection
+    # Define models with memory-aware sizing
+    # Reduce model size for large graphs to prevent GPU OOM
+    if train_data.num_edges > 3000000:  # Large graph
+        hidden_dim = 64
+        num_heads = 4
+        print(f"🔧 Large graph detected ({train_data.num_edges:,} edges), using smaller models")
+    else:
+        hidden_dim = 128
+        num_heads = 8
+        print(f"🔧 Standard graph size ({train_data.num_edges:,} edges), using full-size models")
+    
     models = {
         'GCN': EdgeFeatureGCN(
             node_feature_dim=node_features,
             edge_feature_dim=edge_features,
-            hidden_dim=128,  # Increased for better representation
+            hidden_dim=hidden_dim,
             dropout=0.3,
             use_edge_features=True
         ),
         'GAT': EdgeFeatureGAT(
             node_feature_dim=node_features,
             edge_feature_dim=edge_features,
-            hidden_dim=128,  # Increased for better representation
-            num_heads=8,     # More attention heads for complex patterns
+            hidden_dim=hidden_dim,
+            num_heads=num_heads,
             dropout=0.3,
             use_edge_features=True
         ),
         'GIN': EdgeFeatureGIN(
             node_feature_dim=node_features,
             edge_feature_dim=edge_features,
-            hidden_dim=128,  # Increased for better representation
+            hidden_dim=hidden_dim,
             dropout=0.3,
             use_edge_features=True,
             aggregation='sum'
@@ -414,32 +424,39 @@ def main():
     histories = []
     model_names = []
     
-    for name, model in models.items():
+    for model_name, model in models.items():
         print(f"\n{'='*40}")
-        print(f"TRAINING {name} MODEL")
+        print(f"TRAINING {model_name.upper()} MODEL")
         print(f"{'='*40}")
         
         # Count parameters
-        total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        total_params = sum(p.numel() for p in model.parameters())
         print(f"Model parameters: {total_params:,}")
         
-        # Train
-        start_time = time.time()
-        trained_model, history = train_model(model, train_data, val_data, device)
-        training_time = time.time() - start_time
+        # Clear GPU cache before training each model
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            print(f" GPU cache cleared before {model_name}")
         
-        print(f"Training time: {training_time/60:.1f} minutes")
+        # Train model
+        trained_model, history = train_model_with_memory_management(
+            model, train_data, val_data, epochs=30, lr=0.001
+        )
         
-        trained_models[name] = trained_model
+        trained_models[model_name] = trained_model
         histories.append(history)
-        model_names.append(name)
+        model_names.append(model_name)
+        
+        # Clear GPU cache after training each model
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            print(f" GPU cache cleared after {model_name}")
         
         # Save model
         torch.save({
             'model_state_dict': trained_model.state_dict(),
             'model_class': trained_model.__class__.__name__,
-            'history': history
-        }, MODELS_DIR / f'{name.lower()}_model.pt')
+        }, MODELS_DIR / f'{model_name.lower()}_model.pt')
     
     # Final evaluation
     print(f"\n{'='*50}")
