@@ -45,6 +45,25 @@ class FixedAMLPreprocessor:
         
         # Processing parameters
         self.chunk_size = 50000  # Smaller chunks for memory efficiency
+    
+    def _find_column(self, df, possible_names, default_name):
+        """Find column by checking multiple possible names"""
+        for name in possible_names:
+            if name in df.columns:
+                return name
+        
+        # If not found, try case-insensitive search
+        for name in possible_names:
+            for col in df.columns:
+                if name.lower() == col.lower():
+                    return col
+        
+        # Last resort: return default or first available column
+        if default_name in df.columns:
+            return default_name
+        else:
+            self.logger.warning(f"Column not found from {possible_names}, using first column: {df.columns[0]}")
+            return df.columns[0]
         
     def _setup_logging(self):
         """Setup logging"""
@@ -69,9 +88,40 @@ class FixedAMLPreprocessor:
         accounts_df = pd.read_csv(self.dataset_paths['accounts'])
         self.logger.info(f"Loaded {len(accounts_df):,} accounts")
         
+        # Debug: Print column names
+        self.logger.info(f"Accounts columns: {list(accounts_df.columns)}")
+        
+        # Handle different possible column names
+        bank_col = None
+        account_col = None
+        
+        # Check for bank column variations
+        for col in accounts_df.columns:
+            if 'bank' in col.lower():
+                bank_col = col
+                break
+        
+        # Check for account column variations  
+        for col in accounts_df.columns:
+            if 'account' in col.lower() and col != bank_col:
+                account_col = col
+                break
+        
+        if bank_col is None:
+            # Fallback: use first column as bank
+            bank_col = accounts_df.columns[0]
+            self.logger.warning(f"No 'Bank' column found, using '{bank_col}' as bank column")
+        
+        if account_col is None:
+            # Fallback: use second column as account
+            account_col = accounts_df.columns[1] if len(accounts_df.columns) > 1 else accounts_df.columns[0]
+            self.logger.warning(f"No 'Account' column found, using '{account_col}' as account column")
+        
+        self.logger.info(f"Using bank column: '{bank_col}', account column: '{account_col}'")
+        
         # Create account IDs
-        accounts_df['AccountID'] = (accounts_df['Bank'].astype(str) + '_' + 
-                                   accounts_df['Account'].astype(str))
+        accounts_df['AccountID'] = (accounts_df[bank_col].astype(str) + '_' + 
+                                   accounts_df[account_col].astype(str))
         
         # Create account to node mapping
         unique_accounts = accounts_df['AccountID'].unique()
@@ -101,12 +151,22 @@ class FixedAMLPreprocessor:
         for chunk_idx, df_chunk in enumerate(chunk_reader):
             if chunk_idx >= 10:  # Analyze first 10 chunks for statistics
                 break
+            
+            # Debug: Print column names for first chunk
+            if chunk_idx == 0:
+                self.logger.info(f"Transaction columns: {list(df_chunk.columns)}")
+                
+            # Handle different possible column names for transactions
+            src_bank_col = self._find_column(df_chunk, ['From Bank', 'from_bank', 'source_bank'], 'From Bank')
+            dst_bank_col = self._find_column(df_chunk, ['To Bank', 'to_bank', 'dest_bank'], 'To Bank')
+            src_account_col = self._find_column(df_chunk, ['Account', 'account', 'src_account'], 'Account')
+            dst_account_col = self._find_column(df_chunk, ['Account.1', 'account.1', 'dest_account'], 'Account.1')
                 
             # Create account IDs
-            df_chunk['SrcAccountID'] = (df_chunk['From Bank'].astype(str) + '_' + 
-                                       df_chunk['Account'].astype(str))
-            df_chunk['DstAccountID'] = (df_chunk['To Bank'].astype(str) + '_' + 
-                                       df_chunk['Account.1'].astype(str))
+            df_chunk['SrcAccountID'] = (df_chunk[src_bank_col].astype(str) + '_' + 
+                                       df_chunk[src_account_col].astype(str))
+            df_chunk['DstAccountID'] = (df_chunk[dst_bank_col].astype(str) + '_' + 
+                                       df_chunk[dst_account_col].astype(str))
             
             # Check validity
             src_valid = df_chunk['SrcAccountID'].isin(self.valid_account_ids)
@@ -152,11 +212,17 @@ class FixedAMLPreprocessor:
         for chunk_idx, df_chunk in enumerate(chunk_reader):
             chunk_start_time = time.time()
             
+            # Handle different possible column names for transactions
+            src_bank_col = self._find_column(df_chunk, ['From Bank', 'from_bank', 'source_bank'], 'From Bank')
+            dst_bank_col = self._find_column(df_chunk, ['To Bank', 'to_bank', 'dest_bank'], 'To Bank')
+            src_account_col = self._find_column(df_chunk, ['Account', 'account', 'src_account'], 'Account')
+            dst_account_col = self._find_column(df_chunk, ['Account.1', 'account.1', 'dest_account'], 'Account.1')
+            
             # Create account IDs
-            df_chunk['SrcAccountID'] = (df_chunk['From Bank'].astype(str) + '_' + 
-                                       df_chunk['Account'].astype(str))
-            df_chunk['DstAccountID'] = (df_chunk['To Bank'].astype(str) + '_' + 
-                                       df_chunk['Account.1'].astype(str))
+            df_chunk['SrcAccountID'] = (df_chunk[src_bank_col].astype(str) + '_' + 
+                                       df_chunk[src_account_col].astype(str))
+            df_chunk['DstAccountID'] = (df_chunk[dst_bank_col].astype(str) + '_' + 
+                                       df_chunk[dst_account_col].astype(str))
             
             # CRITICAL FIX: Filter transactions with invalid accounts BEFORE processing
             src_valid = df_chunk['SrcAccountID'].isin(self.valid_account_ids)
@@ -311,8 +377,24 @@ class FixedAMLPreprocessor:
                 
                 # Basic account features
                 node_features[node_idx, 0] = 1.0  # Account exists
-                node_features[node_idx, 1] = hash(str(account_row.get('Bank', ''))) % 1000 / 1000.0
-                node_features[node_idx, 2] = account_row.get('Is Laundering', 0)
+                
+                # Find bank column for hashing
+                bank_value = ''
+                for col in self.accounts_df.columns:
+                    if 'bank' in col.lower():
+                        bank_value = str(account_row.get(col, ''))
+                        break
+                
+                node_features[node_idx, 1] = hash(bank_value) % 1000 / 1000.0
+                
+                # Find laundering column
+                laundering_value = 0
+                for col in self.accounts_df.columns:
+                    if 'launder' in col.lower():
+                        laundering_value = account_row.get(col, 0)
+                        break
+                
+                node_features[node_idx, 2] = laundering_value
                 
                 # Fill remaining features with defaults
                 for i in range(3, 10):
