@@ -16,7 +16,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import GCNConv, GATConv, GINConv, global_mean_pool, global_max_pool
-from torch_geometric.nn import BatchNorm, LayerNorm
+from torch_geometric.nn import LayerNorm
 from torch_geometric.utils import to_dense_batch
 import math
 
@@ -96,7 +96,7 @@ class EdgeFeatureGCN(nn.Module):
         
         # Batch normalization layers
         self.batch_norms = nn.ModuleList([
-            BatchNorm(hidden_dim) for _ in range(3)
+            nn.BatchNorm1d(hidden_dim) for _ in range(3)
         ])
         
         # Skip connection projections
@@ -518,7 +518,7 @@ class EdgeFeatureGIN(nn.Module):
             
             # GIN convolution with learnable epsilon
             self.gin_layers.append(GINConv(mlp, eps=0.0, train_eps=eps_learnable))
-            self.batch_norms.append(BatchNorm(hidden_dim))
+            self.batch_norms.append(nn.BatchNorm1d(hidden_dim))
         
         # Multi-scale feature aggregation
         if aggregation == 'concat':
@@ -550,7 +550,7 @@ class EdgeFeatureGIN(nn.Module):
                 nn.init.xavier_uniform_(module.weight)
                 if module.bias is not None:
                     nn.init.zeros_(module.bias)
-            elif isinstance(module, (nn.BatchNorm1d, BatchNorm)):
+            elif isinstance(module, nn.BatchNorm1d):
                 nn.init.ones_(module.weight)
                 nn.init.zeros_(module.bias)
     
