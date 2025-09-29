@@ -117,12 +117,39 @@ class SimpleGCN(nn.Module):
         h = F.relu(self.bn3(self.conv3(h, edge_index)))
         h = F.dropout(h, p=self.dropout, training=self.training)
         
-        # Create edge representations
+        # MEMORY OPTIMIZATION: Create edge representations in chunks to avoid OOM
         row, col = edge_index
-        edge_repr = torch.cat([h[row], h[col], edge_feat], dim=1)
+        num_edges = edge_index.shape[1]
         
-        # Classify edges
-        return self.classifier(edge_repr)
+        # Process edges in chunks if too many
+        if num_edges > 2000000:  # 2M edge threshold
+            chunk_size = 1000000  # 1M edges per chunk
+            edge_logits = []
+            
+            for i in range(0, num_edges, chunk_size):
+                end_idx = min(i + chunk_size, num_edges)
+                
+                # Get chunk indices
+                chunk_row = row[i:end_idx]
+                chunk_col = col[i:end_idx]
+                chunk_edge_feat = edge_feat[i:end_idx]
+                
+                # Create chunk edge representation
+                chunk_edge_repr = torch.cat([h[chunk_row], h[chunk_col], chunk_edge_feat], dim=1)
+                
+                # Classify chunk
+                chunk_logits = self.classifier(chunk_edge_repr)
+                edge_logits.append(chunk_logits)
+                
+                # Clean up intermediate tensors
+                del chunk_edge_repr, chunk_row, chunk_col, chunk_edge_feat
+            
+            # Concatenate all chunks
+            return torch.cat(edge_logits, dim=0)
+        else:
+            # Standard processing for smaller edge sets
+            edge_repr = torch.cat([h[row], h[col], edge_feat], dim=1)
+            return self.classifier(edge_repr)
 
 class SimpleGAT(nn.Module):
     """Simplified GAT model for Colab training"""
@@ -169,10 +196,31 @@ class SimpleGAT(nn.Module):
         h = F.relu(self.conv3(h, edge_index))
         h = F.dropout(h, p=self.dropout, training=self.training)
         
+        # MEMORY OPTIMIZATION: Process edges in chunks for GAT
         row, col = edge_index
-        edge_repr = torch.cat([h[row], h[col], edge_feat], dim=1)
+        num_edges = edge_index.shape[1]
         
-        return self.classifier(edge_repr)
+        if num_edges > 2000000:  # 2M edge threshold
+            chunk_size = 1000000  # 1M edges per chunk
+            edge_logits = []
+            
+            for i in range(0, num_edges, chunk_size):
+                end_idx = min(i + chunk_size, num_edges)
+                
+                chunk_row = row[i:end_idx]
+                chunk_col = col[i:end_idx]
+                chunk_edge_feat = edge_feat[i:end_idx]
+                
+                chunk_edge_repr = torch.cat([h[chunk_row], h[chunk_col], chunk_edge_feat], dim=1)
+                chunk_logits = self.classifier(chunk_edge_repr)
+                edge_logits.append(chunk_logits)
+                
+                del chunk_edge_repr, chunk_row, chunk_col, chunk_edge_feat
+            
+            return torch.cat(edge_logits, dim=0)
+        else:
+            edge_repr = torch.cat([h[row], h[col], edge_feat], dim=1)
+            return self.classifier(edge_repr)
 
 class SimpleGIN(nn.Module):
     """Simplified GIN model for Colab training"""
@@ -223,10 +271,31 @@ class SimpleGIN(nn.Module):
         h = F.relu(self.conv3(h, edge_index))
         h = F.dropout(h, p=self.dropout, training=self.training)
         
+        # MEMORY OPTIMIZATION: Process edges in chunks for GIN
         row, col = edge_index
-        edge_repr = torch.cat([h[row], h[col], edge_feat], dim=1)
+        num_edges = edge_index.shape[1]
         
-        return self.classifier(edge_repr)
+        if num_edges > 2000000:  # 2M edge threshold
+            chunk_size = 1000000  # 1M edges per chunk
+            edge_logits = []
+            
+            for i in range(0, num_edges, chunk_size):
+                end_idx = min(i + chunk_size, num_edges)
+                
+                chunk_row = row[i:end_idx]
+                chunk_col = col[i:end_idx]
+                chunk_edge_feat = edge_feat[i:end_idx]
+                
+                chunk_edge_repr = torch.cat([h[chunk_row], h[chunk_col], chunk_edge_feat], dim=1)
+                chunk_logits = self.classifier(chunk_edge_repr)
+                edge_logits.append(chunk_logits)
+                
+                del chunk_edge_repr, chunk_row, chunk_col, chunk_edge_feat
+            
+            return torch.cat(edge_logits, dim=0)
+        else:
+            edge_repr = torch.cat([h[row], h[col], edge_feat], dim=1)
+            return self.classifier(edge_repr)
 
 # ============================================================================
 # TRAINING FUNCTIONS
