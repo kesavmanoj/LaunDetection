@@ -293,7 +293,7 @@ def load_data():
 
 def calculate_class_weights(train_data):
     """Calculate class weights for imbalanced data"""
-    labels = train_data.y.numpy()
+    labels = train_data.y.cpu().numpy()  # Move to CPU first
     pos_count = np.sum(labels)
     neg_count = len(labels) - pos_count
     
