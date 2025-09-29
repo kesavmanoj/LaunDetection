@@ -1,6 +1,7 @@
 """
-Streamlined GNN Training Script for AML Detection
-Designed to work with preprocessed LI-Small and HI-Small datasets
+Production GNN Training Script for AML Detection
+Uses fixed preprocessed datasets with no invalid edge indices
+Optimized for Google Colab with Tesla T4 GPU
 """
 
 import torch
@@ -62,31 +63,22 @@ def load_data(memory_efficient=True):
     all_test_data = []
     
     for dataset in datasets:
-        # Try fixed preprocessing files first, fallback to enhanced
-        fixed_file_path = GRAPHS_DIR / f'ibm_aml_{dataset}_fixed_splits.pt'
-        enhanced_file_path = GRAPHS_DIR / f'ibm_aml_{dataset}_enhanced_splits.pt'
+        # Use only fixed preprocessing files
+        file_path = GRAPHS_DIR / f'ibm_aml_{dataset}_fixed_splits.pt'
         
-        if fixed_file_path.exists():
-            file_path = fixed_file_path
-            print(f"Using FIXED preprocessing for {dataset}")
-        elif enhanced_file_path.exists():
-            file_path = enhanced_file_path
-            print(f"Using ENHANCED preprocessing for {dataset} (may have invalid edges)")
-        else:
-            print(f"❌ No preprocessed file found for {dataset}")
+        if not file_path.exists():
+            print(f"❌ Fixed preprocessed file not found for {dataset}: {file_path}")
+            print(f"🔧 Run colab_preprocess_fixed.py first to create the fixed data")
             continue
         
-        if file_path.exists():
-            print(f"Loading {dataset}...")
-            data = torch.load(file_path, map_location='cpu', weights_only=False)
-            
-            all_train_data.append(data['train'])
-            all_val_data.append(data['val'])
-            all_test_data.append(data['test'])
-            
-            print(f"  {dataset}: {data['train'].num_edges:,} train, {data['val'].num_edges:,} val, {data['test'].num_edges:,} test")
-        else:
-            print(f"❌ Missing {dataset}: {file_path}")
+        print(f"Loading {dataset}...")
+        data = torch.load(file_path, map_location='cpu', weights_only=False)
+        
+        all_train_data.append(data['train'])
+        all_val_data.append(data['val'])
+        all_test_data.append(data['test'])
+        
+        print(f"  {dataset}: {data['train'].num_edges:,} train, {data['val'].num_edges:,} val, {data['test'].num_edges:,} test")
     
     if not all_train_data:
         raise ValueError("No datasets found!")
@@ -389,26 +381,30 @@ def main():
     node_features = train_data.x.shape[1]
     edge_features = train_data.edge_attr.shape[1]
     
-    # Define models with memory-efficient settings
+    # Define optimized models for AML detection
     models = {
         'GCN': EdgeFeatureGCN(
             node_feature_dim=node_features,
             edge_feature_dim=edge_features,
-            hidden_dim=96,
-            dropout=0.3
+            hidden_dim=128,  # Increased for better representation
+            dropout=0.3,
+            use_edge_features=True
         ),
         'GAT': EdgeFeatureGAT(
             node_feature_dim=node_features,
             edge_feature_dim=edge_features,
-            hidden_dim=96,
-            num_heads=6,
-            dropout=0.3
+            hidden_dim=128,  # Increased for better representation
+            num_heads=8,     # More attention heads for complex patterns
+            dropout=0.3,
+            use_edge_features=True
         ),
         'GIN': EdgeFeatureGIN(
             node_feature_dim=node_features,
             edge_feature_dim=edge_features,
-            hidden_dim=96,
-            dropout=0.3
+            hidden_dim=128,  # Increased for better representation
+            dropout=0.3,
+            use_edge_features=True,
+            aggregation='sum'
         )
     }
     

@@ -1,5 +1,6 @@
 # ============================================================================
-# SIMPLE GOOGLE COLAB CELL - GNN TRAINING FOR AML DETECTION
+# PRODUCTION GOOGLE COLAB CELL - GNN TRAINING FOR AML DETECTION
+# Uses fixed preprocessed data with optimized models
 # Copy and paste this entire cell into Google Colab
 # ============================================================================
 
@@ -14,7 +15,7 @@ else:
     print("Drive already mounted")
 
 # Install required packages
-!pip install torch torch-geometric scikit-learn matplotlib seaborn tqdm -q
+# !pip install torch torch-geometric scikit-learn matplotlib seaborn tqdm -q
 
 # Change to project directory
 import sys
