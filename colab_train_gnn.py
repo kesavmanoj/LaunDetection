@@ -289,6 +289,41 @@ def load_data():
     total_count = len(train_data.y)
     print(f"  Positive rate: {pos_count/total_count*100:.2f}% ({pos_count:,}/{total_count:,})")
     
+    # CUDA FIX: Validate and fix edge indices
+    def validate_and_fix_edges(data, split_name):
+        print(f"🔍 Validating {split_name} edges...")
+        edge_index = data.edge_index
+        num_nodes = data.num_nodes
+        
+        # Check for invalid indices
+        max_idx = edge_index.max().item()
+        min_idx = edge_index.min().item()
+        
+        print(f"  Edge index range: [{min_idx}, {max_idx}], Num nodes: {num_nodes}")
+        
+        if max_idx >= num_nodes or min_idx < 0:
+            print(f"  ⚠️ Invalid edge indices found! Filtering...")
+            
+            # Create mask for valid edges
+            valid_mask = (edge_index[0] < num_nodes) & (edge_index[1] < num_nodes) & \
+                        (edge_index[0] >= 0) & (edge_index[1] >= 0)
+            
+            # Filter data
+            data.edge_index = edge_index[:, valid_mask]
+            data.edge_attr = data.edge_attr[valid_mask]
+            data.y = data.y[valid_mask]
+            
+            print(f"  ✅ Filtered to {data.num_edges:,} valid edges")
+        else:
+            print(f"  ✅ All edges valid")
+        
+        return data
+    
+    # Validate all splits
+    train_data = validate_and_fix_edges(train_data, "train")
+    val_data = validate_and_fix_edges(val_data, "validation")
+    test_data = validate_and_fix_edges(test_data, "test")
+    
     return train_data, val_data, test_data
 
 def calculate_class_weights(train_data):
@@ -307,6 +342,13 @@ def train_model(model, train_data, val_data, epochs=50, lr=0.001, device='cpu'):
     model = model.to(device)
     train_data = train_data.to(device)
     val_data = val_data.to(device)
+    
+    # CUDA FIX: Additional validation after moving to device
+    print(f"📊 Final data validation on {device}:")
+    print(f"  Train: {train_data.num_nodes} nodes, {train_data.num_edges} edges")
+    print(f"  Val: {val_data.num_nodes} nodes, {val_data.num_edges} edges")
+    print(f"  Train edge range: [{train_data.edge_index.min().item()}, {train_data.edge_index.max().item()}]")
+    print(f"  Val edge range: [{val_data.edge_index.min().item()}, {val_data.edge_index.max().item()}]")
     
     # Setup training
     class_weights = calculate_class_weights(train_data).to(device)
