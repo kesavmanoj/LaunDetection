@@ -6,12 +6,17 @@
 
 # Mount Google Drive and install packages
 from google.colab import drive
-drive.mount('/content/drive')
+import os
+
+# Check if drive is already mounted
+if not os.path.exists('/content/drive/MyDrive'):
+    drive.mount('/content/drive')
+else:
+    print("Drive already mounted")
 
 # Install required packages
 !pip install torch torch-geometric scikit-learn matplotlib seaborn tqdm -q
 
-import os
 import sys
 import torch
 import torch.nn as nn
@@ -239,7 +244,7 @@ def load_data():
         file_path = GRAPHS_DIR / f'ibm_aml_{dataset}_enhanced_splits.pt'
         print(f"Loading {dataset}...")
         
-        data = torch.load(file_path, map_location='cpu')
+        data = torch.load(file_path, map_location='cpu', weights_only=False)
         
         all_train_data.append(data['train'])
         all_val_data.append(data['val'])
