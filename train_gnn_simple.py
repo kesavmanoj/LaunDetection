@@ -166,7 +166,8 @@ def train_model_with_memory_management(model, train_data, val_data, epochs=50, l
     print(f"  Edge features: {train_data.edge_attr.shape}")
     
     # DEBUGGING: Check GPU memory before transfer
-    if device.type == 'cuda':
+    device_obj = torch.device(device) if isinstance(device, str) else device
+    if device_obj.type == 'cuda':
         torch.cuda.empty_cache()
         memory_before = torch.cuda.memory_allocated() / 1024**3
         print(f"  GPU memory before transfer: {memory_before:.2f} GB")
@@ -176,21 +177,21 @@ def train_model_with_memory_management(model, train_data, val_data, epochs=50, l
         print(f"🔄 Moving model to {device}...")
         model = model.to(device)
         
-        if device.type == 'cuda':
+        if device_obj.type == 'cuda':
             memory_after_model = torch.cuda.memory_allocated() / 1024**3
             print(f"  GPU memory after model: {memory_after_model:.2f} GB")
         
         print(f"🔄 Moving training data to {device}...")
         train_data = train_data.to(device)
         
-        if device.type == 'cuda':
+        if device_obj.type == 'cuda':
             memory_after_train = torch.cuda.memory_allocated() / 1024**3
             print(f"  GPU memory after train data: {memory_after_train:.2f} GB")
         
         print(f"🔄 Moving validation data to {device}...")
         val_data = val_data.to(device)
         
-        if device.type == 'cuda':
+        if device_obj.type == 'cuda':
             memory_after_val = torch.cuda.memory_allocated() / 1024**3
             print(f"  GPU memory after val data: {memory_after_val:.2f} GB")
             
@@ -220,7 +221,7 @@ def train_model_with_memory_management(model, train_data, val_data, epochs=50, l
         optimizer.zero_grad()
         
         # DEBUGGING: Memory check before forward pass
-        if device.type == 'cuda' and epoch == 0:
+        if device_obj.type == 'cuda' and epoch == 0:
             memory_before_forward = torch.cuda.memory_allocated() / 1024**3
             print(f"🔍 GPU memory before first forward pass: {memory_before_forward:.2f} GB")
         
@@ -228,7 +229,7 @@ def train_model_with_memory_management(model, train_data, val_data, epochs=50, l
             # Forward pass with debugging
             logits = model(train_data.x, train_data.edge_index, train_data.edge_attr)
             
-            if device.type == 'cuda' and epoch == 0:
+            if device_obj.type == 'cuda' and epoch == 0:
                 memory_after_forward = torch.cuda.memory_allocated() / 1024**3
                 print(f"🔍 GPU memory after forward pass: {memory_after_forward:.2f} GB")
                 print(f"🔍 Forward pass used: {memory_after_forward - memory_before_forward:.2f} GB")
