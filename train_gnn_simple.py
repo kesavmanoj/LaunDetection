@@ -83,27 +83,20 @@ def load_data(memory_efficient=True):
     if not all_train_data:
         raise ValueError("No datasets found!")
     
-    # Combine datasets
-    def combine_data(data_list):
+    # Combine datasets safely
+    def combine_or_select_first(data_list, split_name):
         if len(data_list) == 1:
             return data_list[0]
-        
-        x = data_list[0].x
-        edge_indices = [d.edge_index for d in data_list]
-        edge_attrs = [d.edge_attr for d in data_list]
-        labels = [d.y for d in data_list]
-        
-        from torch_geometric.data import Data
-        return Data(
-            x=x,
-            edge_index=torch.cat(edge_indices, dim=1),
-            edge_attr=torch.cat(edge_attrs, dim=0),
-            y=torch.cat(labels, dim=0)
-        )
-    
-    train_data = combine_data(all_train_data)
-    val_data = combine_data(all_val_data)
-    test_data = combine_data(all_test_data)
+
+        # Safety: Do NOT naively concatenate across datasets because node sets
+        # are independently remapped in preprocessing per dataset. Using the
+        # first dataset avoids invalid cross-graph mixing.
+        print(f"⚠️ Multiple datasets loaded for {split_name}; using the first dataset only to avoid invalid cross-graph concatenation.")
+        return data_list[0]
+
+    train_data = combine_or_select_first(all_train_data, "train")
+    val_data = combine_or_select_first(all_val_data, "val")
+    test_data = combine_or_select_first(all_test_data, "test")
     
     print(f"\n📊 Combined dataset:")
     print(f"  Nodes: {train_data.num_nodes:,}")
@@ -143,16 +136,24 @@ def load_data(memory_efficient=True):
     return train_data, val_data, test_data
 
 def calculate_class_weights(train_data):
-    """Calculate class weights for imbalanced data"""
-    labels = train_data.y.cpu().numpy()
-    pos_count = np.sum(labels)
-    neg_count = len(labels) - pos_count
-    
-    pos_weight = len(labels) / (2 * pos_count)
-    
-    print(f"Class distribution: {neg_count:,} negative, {pos_count:,} positive ({pos_count/len(labels)*100:.2f}% positive)")
-    
-    return torch.tensor([neg_weight, pos_weight], dtype=torch.float32)
+    """Calculate class weights for imbalanced data with zero-division guards"""
+    labels = train_data.y.detach().cpu().numpy()
+    total = len(labels)
+    pos_count = int(np.sum(labels))
+    neg_count = int(total - pos_count)
+
+    # Default to equal weights if any class is missing
+    if pos_count == 0 or neg_count == 0 or total == 0:
+        print("⚠️ Degenerate class distribution detected; using equal class weights [1.0, 1.0].")
+        weights = torch.tensor([1.0, 1.0], dtype=torch.float32)
+    else:
+        pos_weight = total / (2.0 * pos_count)
+        neg_weight = total / (2.0 * neg_count)
+        weights = torch.tensor([neg_weight, pos_weight], dtype=torch.float32)
+
+    pos_ratio = (pos_count / total * 100.0) if total > 0 else 0.0
+    print(f"Class distribution: {neg_count:,} negative, {pos_count:,} positive ({pos_ratio:.2f}% positive)")
+    return weights
 
 def train_model_with_memory_management(model, train_data, val_data, epochs=50, lr=0.001, device='cuda', max_edges_per_batch=1000000):
     """Train a single model with memory optimization and debugging"""

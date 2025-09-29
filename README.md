@@ -1,207 +1,120 @@
-# 🏦 AML Detection using Graph Neural Networks
+## AI Agent Context: AML Graph Neural Network Pipeline
 
-Production-ready Graph Neural Networks (GNNs) for Anti-Money Laundering (AML) detection using the IBM AML dataset. The system analyzes transaction patterns to identify potentially suspicious financial activities with state-of-the-art deep learning models.
+Use this document as your operating manual to run, extend, or debug the AML detection pipeline. It is optimized for autonomous agents executing in Google Colab with files stored under `/content/drive/MyDrive/LaunDetection`.
 
-## 🎯 Key Features
+### Mission
+- Ingest IBM AML datasets, build transaction graphs, and train edge-level binary classifiers using GNNs to detect laundering transactions.
+- Guarantee: No invalid edge indices after preprocessing; robust handling of column name variations; memory-aware training and evaluation.
 
-- **Fixed Preprocessing**: No invalid edge indices - guaranteed data consistency
-- **Advanced GNN Models**: EdgeFeatureGCN, EdgeFeatureGAT, EdgeFeatureGIN with sophisticated architectures
-- **Memory Optimized**: Chunked processing for large-scale datasets
-- **Production Ready**: Clean, modular codebase optimized for Google Colab
-- **Comprehensive Evaluation**: Multiple metrics and visualization tools
+### Operating Environment Assumptions
+- Runtime: Python 3.10+, PyTorch + PyTorch Geometric on Google Colab with Tesla T4 (or CPU fallback).
+- Base path: `/content/drive/MyDrive/LaunDetection`.
+- Raw inputs expected in: `data/raw/`
+  - `HI-Small_accounts.csv`, `HI-Small_Trans.csv`
+  - `LI-Small_accounts.csv`, `LI-Small_Trans.csv`
 
-## 📁 Project Structure
+### System Overview (Modules and Responsibilities)
+- `preprocessing_fixed.py`
+  - Class `FixedAMLPreprocessor`: robust preprocessing with early filtering of invalid accounts and remapping to contiguous node ids.
+  - Outputs: `ibm_aml_<dataset>_fixed_splits.pt` and `ibm_aml_<dataset>_fixed_complete.pt` in `data/graphs/`.
+- `gnn_models.py`
+  - Models: `EdgeFeatureGCN`, `EdgeFeatureGAT`, `EdgeFeatureGIN`.
+  - All operate on node features `x`, edge index `edge_index`, edge features `edge_attr`; predict edge-level logits for 2 classes.
+  - Includes `get_model(model_type)` and utilities `count_parameters`, `model_summary`.
+- `train_gnn_simple.py`
+  - Production trainer. Loads fixed splits, configures device, trains GCN/GAT/GIN with memory-aware sizes, CPU fallback, early stopping, and plotting.
+  - Saves models under `models/` as `<name>_model.pt`.
+- `train_sequential.py`
+  - Two-stage transfer pipeline: train on `LI-Small`, fine-tune on `HI-Small`; evaluates cross-dataset generalization.
+- `validate_data.py`
+  - `AMLDataValidator` for comprehensive pre-training checks (structure, indices, consistency, class distribution, feature quality, splits).
+- `colab_preprocess_fixed.py`, `colab_simple.py`, `colab_validate_data_fixed.py`, `colab_training_ready.py`
+  - One-cell Colab entry points for preprocessing, training, validation, and readiness checks.
 
-```
-LaunDetection/
-├── gnn_models.py                # Advanced GNN model architectures
-├── preprocessing_fixed.py       # Fixed preprocessing pipeline
-├── train_gnn_simple.py         # Production training script
-├── colab_simple.py             # Google Colab training cell
-├── colab_preprocess_fixed.py   # Google Colab preprocessing cell
-├── README.md                   # This file
-└── data/
-    ├── raw/                    # Raw CSV files (not in git)
-    └── graphs/                 # Processed PyTorch Geometric data
-```
+### Data Contracts
+- Splits file `ibm_aml_<dataset>_fixed_splits.pt` is a dict with keys: `train`, `val`, `test`, `complete` (Data), `metadata`.
+- `Data` object has: `x` [num_nodes, 10], `edge_index` [2, num_edges], `edge_attr` [num_edges, 10], `y` [num_edges].
+- Invariants:
+  - Edge indices are within `[0, num_nodes)`; no negatives.
+  - Node/edge feature dimensions are consistent across splits.
+  - Labels are binary {0,1}.
 
-## 🚀 Quick Start (Google Colab)
+### Features Modelled
+- Node features (10 dims): existence flag, hashed bank id, hashed entity id, entity type heuristic, plus default fillers.
+- Edge features (10 dims): log amounts, time-of-day/week, currency mismatch, bitcoin flag, large/round amounts, clipped exchange rate, self-transaction flag.
 
-### Step 1: Preprocess Data
-```python
-# Copy and run colab_preprocess_fixed.py in Google Colab
-# This creates fixed preprocessed files without invalid edge indices
-```
+### Runbook
+1) Preprocess (MANDATORY before training)
+   - Preferred: Execute the Colab cell in `colab_preprocess_fixed.py`.
+   - Programmatic API:
+     ```python
+     from preprocessing_fixed import process_datasets
+     process_datasets(['HI-Small', 'LI-Small'])
+     ```
+   - Outputs saved to: `data/graphs/` with `_fixed_splits.pt` suffix.
 
-### Step 2: Train Models
-```python
-# Copy and run colab_simple.py in Google Colab
-# This trains all three GNN models and saves results
-```
+2) Validate
+   - Quick: run the cell in `colab_validate_data_fixed.py`.
+   - Full: use `validate_data.AMLDataValidator().validate_dataset(dataset, 'fixed')` and `generate_validation_report()`.
 
-## 🧠 Model Architectures
+3) Train
+   - One-shot, multi-model: run the cell in `colab_simple.py`, which calls `train_gnn_simple.main()`.
+   - Transfer learning: run `train_sequential.sequential_training()`.
+   - Models saved to `models/` as `gcn_model.pt`, `gat_model.pt`, `gin_model.pt` (or `_sequential_model.pt`).
 
-### EdgeFeatureGCN
-- **Skip connections** for better gradient flow
-- **Edge attention mechanism** for sophisticated edge feature integration
-- **Batch normalization** for stable training
-- **128 hidden dimensions** for rich representations
+4) Inference (edge classification)
+   ```python
+   import torch
+   from gnn_models import EdgeFeatureGAT
+   data = torch.load('/content/drive/MyDrive/LaunDetection/data/graphs/ibm_aml_hi-small_fixed_splits.pt', map_location='cpu', weights_only=False)
+   test = data['test']
+   model = EdgeFeatureGAT(node_feature_dim=test.x.shape[1], edge_feature_dim=test.edge_attr.shape[1], hidden_dim=128)
+   state = torch.load('/content/drive/MyDrive/LaunDetection/models/gat_model.pt', map_location='cpu')
+   model.load_state_dict(state['model_state_dict'])
+   model.eval();
+   with torch.no_grad():
+       logits = model(test.x, test.edge_index, test.edge_attr)
+       preds = logits.argmax(dim=1)
+   ```
 
-### EdgeFeatureGAT
-- **Multi-head attention** (8 heads) for diverse relationship patterns
-- **Layer normalization** for stable attention training
-- **Residual connections** to prevent over-smoothing
-- **Edge-aware attention** computation
+### Critical Controls and Defaults
+- Device: Auto CUDA or CPU fallback (`train_gnn_simple.setup_device`).
+- Memory guards:
+  - Preprocessing uses chunked CSV reads (50k) with early filtering.
+  - `EdgeFeatureGCN` chunks edge classification if edges > 2M.
+  - Trainer downsizes `hidden_dim` and `num_heads` if edges > 3M.
+- Class imbalance: Weighted `CrossEntropyLoss` based on split labels.
+- Early stopping: patience=10 on validation F1.
 
-### EdgeFeatureGIN
-- **Learnable epsilon** for better graph isomorphism
-- **Multi-scale feature aggregation** (sum/mean/max/concat)
-- **MLP aggregators** with batch normalization
-- **Powerful graph representation** learning
+### Failure Modes and Agent Actions
+- Missing files in `data/graphs/`:
+  - Action: run preprocessing first (`colab_preprocess_fixed.py` or `process_datasets`).
+- Invalid edge indices detected anywhere:
+  - Action: re-run fixed preprocessing; never attempt to "fix" at training time.
+- Column mismatch in CSVs:
+  - Action: rely on `_find_column()` in preprocessor; do not hardcode names.
+- GPU OOM:
+  - Action: accept CPU fallback; optionally reduce `hidden_dim`, `num_heads`, or set `memory_efficient=True` in loader.
 
-## 📊 Dataset Information
+### Extending the System (Guidelines)
+- Add features: extend `_extract_edge_features` and `create_node_features` keeping 10-dim contract unless you propagate new dims through preprocessing, metadata, and models.
+- New models: implement class in `gnn_models.py` with signature `forward(x, edge_index, edge_attr, batch=None)` returning edge logits; add case to `get_model`.
+- New datasets: place CSVs in `data/raw/`, call `process_datasets([<name>])`; filenames follow `<Name>_accounts.csv` and `<Name>_Trans.csv`.
 
-### Supported Datasets
-- **HI-Small**: High illicit ratio, small scale (~6M edges after filtering)
-- **LI-Small**: Low illicit ratio, small scale (~5M edges after filtering)
+### Key File Paths
+- Raw: `/content/drive/MyDrive/LaunDetection/data/raw/`
+- Graphs: `/content/drive/MyDrive/LaunDetection/data/graphs/`
+- Models: `/content/drive/MyDrive/LaunDetection/models/`
+- Logs: `/content/drive/MyDrive/LaunDetection/logs/`
 
-### Data Characteristics
-- **Highly imbalanced**: Laundering transactions are ~0.06% of total
-- **Large scale**: Millions of transactions after filtering
-- **Temporal**: Chronological train/val/test splits
-- **Multi-entity**: Banks, accounts, and entities
-- **Rich features**: 10 node features, 10 edge features
+### Quick Capability Map
+- Detection targets: edge-level laundering classification (binary).
+- Architectures: GCN (3-layer, BN, skip), GAT (multi-head, layer norm, residual), GIN (MLP aggregators, multi-scale aggregation).
+- Evaluation: accuracy, precision, recall, F1, AUC; comparison plots saved as `training_results.png`.
 
-## 🔧 Key Improvements
+### Minimal Agent Checklists
+- Pre-train: ensure `_fixed_splits.pt` exists for each dataset; run quick validator.
+- Train: pick model(s), verify feature dims match data; handle device selection.
+- Post-train: save state dict, run test evaluation, persist metrics and plots.
 
-### Fixed Preprocessing
-- ✅ **No invalid edge indices**: Filters transactions during preprocessing
-- ✅ **Robust column detection**: Handles different CSV column names
-- ✅ **Memory efficient**: Chunked processing with 50K rows per chunk
-- ✅ **Data validation**: Comprehensive edge index validation
-
-### Advanced Models
-- ✅ **Sophisticated architectures**: Skip connections, attention mechanisms
-- ✅ **Memory optimization**: Chunked forward passes for large graphs
-- ✅ **Edge feature integration**: Advanced attention-based combination
-- ✅ **Stable training**: Proper normalization and regularization
-
-### Production Ready
-- ✅ **Clean codebase**: Modular, well-documented code
-- ✅ **Google Colab optimized**: Works with Tesla T4 GPU constraints
-- ✅ **Comprehensive logging**: Detailed progress and error reporting
-- ✅ **Automatic fallbacks**: CPU fallback on GPU OOM
-
-## 📈 Expected Performance
-
-### Model Performance (Test F1-Score)
-- **EdgeFeatureGAT**: ~0.82-0.85 (best performance)
-- **EdgeFeatureGIN**: ~0.80-0.83 (good generalization)
-- **EdgeFeatureGCN**: ~0.78-0.81 (stable baseline)
-
-### Processing Times
-- **Preprocessing**: 10-15 minutes per dataset
-- **Training**: 15-30 minutes for all three models
-- **Total pipeline**: ~45-60 minutes end-to-end
-
-## 🔍 Technical Details
-
-### Node Features (10 dimensions)
-1. **Account existence** indicator
-2. **Bank ID** hash for bank identification
-3. **Entity ID** hash for entity identification
-4. **Entity type** (Corporation/Sole Proprietorship)
-5-10. **Default features** for model compatibility
-
-### Edge Features (10 dimensions)
-1. **Amount received** (log-transformed)
-2. **Amount paid** (log-transformed)
-3. **Hour of day** (normalized 0-1)
-4. **Day of week** (normalized 0-1)
-5. **Cross-currency** transaction indicator
-6. **Bitcoin payment** indicator
-7. **Large amount** indicator (>95th percentile)
-8. **Round amount** indicator (divisible by 1000)
-9. **Exchange rate** (clipped 0-10)
-10. **Self-transaction** indicator
-
-## 🛠️ Installation
-
-### Requirements
-```bash
-pip install torch torch-geometric pandas numpy scikit-learn matplotlib seaborn tqdm
-```
-
-### Dataset Setup
-1. Download IBM AML dataset files
-2. Upload to Google Drive: `/content/drive/MyDrive/LaunDetection/data/raw/`
-3. Required files:
-   - `HI-Small_accounts.csv`
-   - `HI-Small_Trans.csv`
-   - `LI-Small_accounts.csv`
-   - `LI-Small_Trans.csv`
-
-## 🐛 Troubleshooting
-
-### Common Issues
-
-**"Bank" column error**
-```
-Solution: Run colab_preprocess_fixed.py - it handles different column names
-```
-
-**GPU out of memory**
-```
-Solution: The training script automatically falls back to CPU
-```
-
-**Invalid edge indices**
-```
-Solution: Use fixed preprocessing - it eliminates this issue entirely
-```
-
-**No preprocessed files found**
-```
-Solution: Run colab_preprocess_fixed.py first to create the data
-```
-
-## 📝 Usage Examples
-
-### Load Trained Models
-```python
-import torch
-from gnn_models import EdgeFeatureGAT
-
-# Load trained model
-model_data = torch.load('/content/drive/MyDrive/LaunDetection/models/gat_model.pt')
-model = EdgeFeatureGAT(node_feature_dim=10, edge_feature_dim=10, hidden_dim=128)
-model.load_state_dict(model_data['model_state_dict'])
-```
-
-### Evaluate on New Data
-```python
-# Load test data
-splits_data = torch.load('/content/drive/MyDrive/LaunDetection/data/graphs/ibm_aml_hi-small_fixed_splits.pt')
-test_data = splits_data['test']
-
-# Make predictions
-model.eval()
-with torch.no_grad():
-    logits = model(test_data.x, test_data.edge_index, test_data.edge_attr)
-    predictions = logits.argmax(dim=1)
-```
-
-## 🎯 Next Steps
-
-1. **Hyperparameter tuning**: Experiment with different hidden dimensions
-2. **Ensemble methods**: Combine predictions from all three models
-3. **Feature engineering**: Add more sophisticated node/edge features
-4. **Scalability**: Extend to larger datasets (HI-Medium, LI-Medium)
-
-## 📄 License
-
-This project is for research and educational purposes with the IBM AML dataset.
-
----
-
-**Ready to detect money laundering with state-of-the-art graph neural networks! 🕵️‍♂️💰**
+This document is designed for autonomous operation. Follow the runbook and invariants to avoid data integrity issues and ensure reproducible training.
