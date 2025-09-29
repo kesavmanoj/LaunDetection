@@ -556,37 +556,49 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
     
-    # CUDA DEBUGGING: Detailed device information
+    # CUDA DEBUGGING: Detailed device information with safe error handling
     if torch.cuda.is_available():
         print(f"🔧 CUDA Debug Info:")
-        print(f"  CUDA version: {torch.version.cuda}")
-        print(f"  Device count: {torch.cuda.device_count()}")
-        print(f"  Current device: {torch.cuda.current_device()}")
-        print(f"  Device name: {torch.cuda.get_device_name()}")
-        
-        # Memory info
-        memory_allocated = torch.cuda.memory_allocated() / 1024**3
-        memory_reserved = torch.cuda.memory_reserved() / 1024**3
-        print(f"  Memory allocated: {memory_allocated:.2f} GB")
-        print(f"  Memory reserved: {memory_reserved:.2f} GB")
-        
-        # Clear cache
-        torch.cuda.empty_cache()
-        print(f"  ✅ CUDA cache cleared")
-        
-        # Test basic CUDA operations
         try:
-            test_tensor = torch.randn(10, 10).cuda()
-            test_result = test_tensor @ test_tensor.T
-            print(f"  ✅ Basic CUDA operations working")
-            del test_tensor, test_result
-            torch.cuda.empty_cache()
+            print(f"  CUDA version: {torch.version.cuda}")
+            print(f"  Device count: {torch.cuda.device_count()}")
+            print(f"  Current device: {torch.cuda.current_device()}")
+            print(f"  Device name: {torch.cuda.get_device_name()}")
+            
+            # Memory info
+            memory_allocated = torch.cuda.memory_allocated() / 1024**3
+            memory_reserved = torch.cuda.memory_reserved() / 1024**3
+            print(f"  Memory allocated: {memory_allocated:.2f} GB")
+            print(f"  Memory reserved: {memory_reserved:.2f} GB")
+            
+            # CUDA SAFETY: Check if reserved memory is too high (indicates corruption)
+            if memory_reserved > 6.0:  # More than 6GB reserved is suspicious
+                print(f"  ⚠️ High reserved memory detected ({memory_reserved:.2f} GB)")
+                print(f"  🔄 CUDA may be corrupted, switching to CPU for safety")
+                device = torch.device('cpu')
+            else:
+                # Try to clear cache safely
+                print(f"  🔄 Attempting to clear CUDA cache...")
+                torch.cuda.empty_cache()
+                print(f"  ✅ CUDA cache cleared")
+                
+                # Test basic CUDA operations
+                print(f"  🔄 Testing basic CUDA operations...")
+                test_tensor = torch.randn(10, 10).cuda()
+                test_result = test_tensor @ test_tensor.T
+                print(f"  ✅ Basic CUDA operations working")
+                del test_tensor, test_result
+                torch.cuda.empty_cache()
+                
         except Exception as e:
-            print(f"  ❌ Basic CUDA test failed: {e}")
+            print(f"  ❌ CUDA initialization failed: {e}")
+            print(f"  🔄 CUDA appears corrupted, falling back to CPU")
             device = torch.device('cpu')
-            print(f"  🔄 Falling back to CPU")
     else:
         print("🔧 CUDA not available, using CPU")
+    
+    # FINAL DEVICE CHECK
+    print(f"🎯 Final device selection: {device}")
     
     # Load data
     train_data, val_data, test_data = load_data()
@@ -704,6 +716,15 @@ def main():
     
     return trained_models, results
 
+# CUDA SAFETY: Option to force CPU mode
+FORCE_CPU_MODE = False  # Set to True if CUDA keeps failing
+
 # Run the training pipeline
 if __name__ == "__main__":
+    if FORCE_CPU_MODE:
+        print("🔧 FORCE_CPU_MODE enabled - using CPU only")
+        # Disable CUDA completely
+        import os
+        os.environ['CUDA_VISIBLE_DEVICES'] = ''
+    
     trained_models, results = main()
