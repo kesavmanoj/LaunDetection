@@ -38,7 +38,11 @@ class AMLDataValidator:
             print(f"⚠️ Complete file not found: {complete_file}")
             complete_data = None
         else:
-            complete_data = torch.load(complete_file, map_location='cpu')
+            try:
+                complete_data = torch.load(complete_file, map_location='cpu', weights_only=False)
+            except Exception as e:
+                print(f"⚠️ Could not load complete file: {e}")
+                complete_data = None
             
         splits_data = torch.load(splits_file, map_location='cpu', weights_only=False)
         

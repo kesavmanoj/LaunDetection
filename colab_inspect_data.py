@@ -49,13 +49,23 @@ else:
                     print(f"    📊 Nodes: {data['train'].num_nodes:,}")
                     print(f"    📊 Node features: {data['train'].x.shape[1]}")
                     print(f"    📊 Edge features: {data['train'].edge_attr.shape[1]}")
+                    
+                    # Quick edge index validation
+                    max_edge_idx = data['train'].edge_index.max().item()
+                    num_nodes = data['train'].num_nodes
+                    if max_edge_idx >= num_nodes:
+                        print(f"    ⚠️ EDGE INDEX ISSUE: max_idx={max_edge_idx}, nodes={num_nodes}")
+                    else:
+                        print(f"    ✅ Edge indices valid: [0, {max_edge_idx}] for {num_nodes} nodes")
+                        
                 elif 'complete' in file.name:
-                    data = torch.load(file, map_location='cpu')
+                    # Use weights_only=False for complete files
+                    data = torch.load(file, map_location='cpu', weights_only=False)
                     print(f"    📊 Total edges: {data.num_edges:,}")
                     print(f"    📊 Nodes: {data.num_nodes:,}")
                 print()
             except Exception as e:
-                print(f"    ❌ Error loading: {e}")
+                print(f"    ❌ Error loading: {str(e)[:100]}...")
                 print()
 
 # Check for specific files we expect
