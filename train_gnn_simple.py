@@ -47,11 +47,16 @@ def setup_device():
     
     return device
 
-def load_data():
-    """Load preprocessed datasets"""
+def load_data(memory_efficient=True):
+    """Load preprocessed datasets with optional memory optimization"""
     print("📂 Loading preprocessed datasets...")
     
-    datasets = ['hi-small', 'li-small']
+    if memory_efficient:
+        print("🔧 Memory-efficient mode: Loading only LI-Small dataset")
+        datasets = ['li-small']  # Start with just one dataset
+    else:
+        datasets = ['hi-small', 'li-small']
+    
     all_train_data = []
     all_val_data = []
     all_test_data = []
@@ -148,13 +153,52 @@ def calculate_class_weights(train_data):
     return torch.tensor([neg_weight, pos_weight], dtype=torch.float32)
 
 def train_model(model, train_data, val_data, device, epochs=50, lr=0.001):
-    """Train a single model with memory optimization"""
+    """Train a single model with memory optimization and debugging"""
     print(f"🚀 Training {model.__class__.__name__} on {device}")
     
-    # Move to device
-    model = model.to(device)
-    train_data = train_data.to(device)
-    val_data = val_data.to(device)
+    # DEBUGGING: Check data sizes before moving to GPU
+    print(f"🔍 Data sizes before GPU transfer:")
+    print(f"  Train edges: {train_data.num_edges:,}")
+    print(f"  Val edges: {val_data.num_edges:,}")
+    print(f"  Node features: {train_data.x.shape}")
+    print(f"  Edge features: {train_data.edge_attr.shape}")
+    
+    # DEBUGGING: Check GPU memory before transfer
+    if device.type == 'cuda':
+        torch.cuda.empty_cache()
+        memory_before = torch.cuda.memory_allocated() / 1024**3
+        print(f"  GPU memory before transfer: {memory_before:.2f} GB")
+    
+    # Move to device with error handling
+    try:
+        print(f"🔄 Moving model to {device}...")
+        model = model.to(device)
+        
+        if device.type == 'cuda':
+            memory_after_model = torch.cuda.memory_allocated() / 1024**3
+            print(f"  GPU memory after model: {memory_after_model:.2f} GB")
+        
+        print(f"🔄 Moving training data to {device}...")
+        train_data = train_data.to(device)
+        
+        if device.type == 'cuda':
+            memory_after_train = torch.cuda.memory_allocated() / 1024**3
+            print(f"  GPU memory after train data: {memory_after_train:.2f} GB")
+        
+        print(f"🔄 Moving validation data to {device}...")
+        val_data = val_data.to(device)
+        
+        if device.type == 'cuda':
+            memory_after_val = torch.cuda.memory_allocated() / 1024**3
+            print(f"  GPU memory after val data: {memory_after_val:.2f} GB")
+            
+    except Exception as e:
+        print(f"❌ Error moving data to {device}: {e}")
+        print(f"🔄 Falling back to CPU...")
+        device = torch.device('cpu')
+        model = model.cpu()
+        train_data = train_data.cpu()
+        val_data = val_data.cpu()
     
     # Setup training
     class_weights = calculate_class_weights(train_data).to(device)
@@ -173,12 +217,45 @@ def train_model(model, train_data, val_data, device, epochs=50, lr=0.001):
         model.train()
         optimizer.zero_grad()
         
-        logits = model(train_data.x, train_data.edge_index, train_data.edge_attr)
-        loss = criterion(logits, train_data.y)
-        loss.backward()
+        # DEBUGGING: Memory check before forward pass
+        if device.type == 'cuda' and epoch == 0:
+            memory_before_forward = torch.cuda.memory_allocated() / 1024**3
+            print(f"🔍 GPU memory before first forward pass: {memory_before_forward:.2f} GB")
         
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-        optimizer.step()
+        try:
+            # Forward pass with debugging
+            logits = model(train_data.x, train_data.edge_index, train_data.edge_attr)
+            
+            if device.type == 'cuda' and epoch == 0:
+                memory_after_forward = torch.cuda.memory_allocated() / 1024**3
+                print(f"🔍 GPU memory after forward pass: {memory_after_forward:.2f} GB")
+                print(f"🔍 Forward pass used: {memory_after_forward - memory_before_forward:.2f} GB")
+            
+            loss = criterion(logits, train_data.y)
+            loss.backward()
+            
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            optimizer.step()
+            
+        except RuntimeError as e:
+            if "out of memory" in str(e):
+                print(f"❌ GPU OOM during training at epoch {epoch}")
+                print(f"🔍 Error: {e}")
+                
+                # Try to recover with CPU fallback
+                print(f"🔄 Attempting CPU fallback...")
+                device = torch.device('cpu')
+                model = model.cpu()
+                train_data = train_data.cpu()
+                val_data = val_data.cpu()
+                
+                # Retry forward pass on CPU
+                logits = model(train_data.x, train_data.edge_index, train_data.edge_attr)
+                loss = criterion(logits, train_data.y)
+                loss.backward()
+                optimizer.step()
+            else:
+                raise e
         
         # Validation
         model.eval()
@@ -290,7 +367,13 @@ def main():
     
     # Setup
     device = setup_device()
-    train_data, val_data, test_data = load_data()
+    
+    # MEMORY OPTIMIZATION: Start with single dataset if GPU memory is limited
+    try:
+        train_data, val_data, test_data = load_data(memory_efficient=False)  # Try both datasets first
+    except Exception as e:
+        print(f"⚠️ Failed to load both datasets, trying memory-efficient mode: {e}")
+        train_data, val_data, test_data = load_data(memory_efficient=True)  # Fallback to single dataset
     
     node_features = train_data.x.shape[1]
     edge_features = train_data.edge_attr.shape[1]
