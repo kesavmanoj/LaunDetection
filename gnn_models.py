@@ -169,8 +169,8 @@ class EdgeFeatureGCN(nn.Module):
         row, col = edge_index
         num_edges = edge_index.shape[1]
         
-        if num_edges > 2000000:  # 2M edge threshold for chunking
-            chunk_size = 1000000  # 1M edges per chunk
+        if num_edges > 500000:  # lower threshold for chunking to reduce peak memory
+            chunk_size = 250000  # smaller chunks to limit activation memory
             edge_logits = []
             
             for i in range(0, num_edges, chunk_size):
@@ -398,29 +398,48 @@ class EdgeFeatureGAT(nn.Module):
             h = F.relu(h)
             h = F.dropout(h, p=self.dropout, training=self.training)
         
-        # Create edge representations
+        # Chunked edge classification to avoid peak memory
         row, col = edge_index
-        src_features = h[row]  # [num_edges, hidden_dim]
-        dst_features = h[col]  # [num_edges, hidden_dim]
-        
-        # Integrate edge features using gating mechanism
-        if self.use_edge_features and edge_feat is not None:
-            # Compute gate values
-            gate_input = torch.cat([src_features, dst_features, edge_feat], dim=1)
-            gate = self.edge_gate(gate_input)  # [num_edges, hidden_dim]
-            
-            # Apply gating to edge features and add to node features
-            gated_edge_feat = gate * edge_feat
-            src_features = src_features + gated_edge_feat
-            dst_features = dst_features + gated_edge_feat
-        
-        # Combine source and destination features for edge representation
-        edge_repr = torch.cat([src_features, dst_features], dim=1)  # [num_edges, hidden_dim * 2]
-        
-        # Final edge classification
-        logits = self.edge_classifier(edge_repr)  # [num_edges, num_classes]
-        
-        return logits
+        num_edges = edge_index.shape[1]
+        if num_edges > 500000:
+            chunk_size = 250000
+            logits_chunks = []
+            for i in range(0, num_edges, chunk_size):
+                end_idx = min(i + chunk_size, num_edges)
+                src_features = h[row[i:end_idx]]
+                dst_features = h[col[i:end_idx]]
+
+                if self.use_edge_features and edge_attr is not None:
+                    # Encode edge features per chunk
+                    edge_feat_chunk = self.edge_encoder(edge_attr[i:end_idx])
+                    gate_input = torch.cat([src_features, dst_features, edge_feat_chunk], dim=1)
+                    gate = self.edge_gate(gate_input)
+                    gated_edge_feat = gate * edge_feat_chunk
+                    src_features = src_features + gated_edge_feat
+                    dst_features = dst_features + gated_edge_feat
+
+                edge_repr = torch.cat([src_features, dst_features], dim=1)
+                logits_chunks.append(self.edge_classifier(edge_repr))
+
+                # explicit cleanup
+                del src_features, dst_features, edge_repr
+                if self.use_edge_features and edge_attr is not None:
+                    del edge_feat_chunk, gate_input, gate, gated_edge_feat
+
+            return torch.cat(logits_chunks, dim=0)
+        else:
+            src_features = h[row]
+            dst_features = h[col]
+            if self.use_edge_features and edge_attr is not None:
+                edge_feat = self.edge_encoder(edge_attr)
+                gate_input = torch.cat([src_features, dst_features, edge_feat], dim=1)
+                gate = self.edge_gate(gate_input)
+                gated_edge_feat = gate * edge_feat
+                src_features = src_features + gated_edge_feat
+                dst_features = dst_features + gated_edge_feat
+            edge_repr = torch.cat([src_features, dst_features], dim=1)
+            logits = self.edge_classifier(edge_repr)
+            return logits
 
 class EdgeFeatureGIN(nn.Module):
     """
@@ -570,27 +589,25 @@ class EdgeFeatureGIN(nn.Module):
         # Encode node features
         h = self.node_encoder(x)  # [num_nodes, hidden_dim]
         
-        # Process and integrate edge features
+        # Process and integrate edge features with chunked aggregation to reduce memory
         if self.use_edge_features and edge_attr is not None:
-            edge_feat = self.edge_encoder(edge_attr)  # [num_edges, hidden_dim]
-            
-            # Modify node features based on adjacent edge features
             row, col = edge_index
-            
-            # Aggregate edge features to nodes (mean aggregation)
-            node_edge_agg = torch.zeros_like(h)  # [num_nodes, hidden_dim]
-            node_edge_agg.index_add_(0, row, edge_feat)
-            node_edge_agg.index_add_(0, col, edge_feat)
-            
-            # Count edges per node for normalization
+            num_edges_total = edge_index.shape[1]
+            node_edge_agg = torch.zeros_like(h)
+            chunk_size = 250000 if num_edges_total > 500000 else num_edges_total
+            for i in range(0, num_edges_total, chunk_size):
+                end_idx = min(i + chunk_size, num_edges_total)
+                edge_feat_chunk = self.edge_encoder(edge_attr[i:end_idx])
+                row_chunk = row[i:end_idx]
+                col_chunk = col[i:end_idx]
+                node_edge_agg.index_add_(0, row_chunk, edge_feat_chunk)
+                node_edge_agg.index_add_(0, col_chunk, edge_feat_chunk)
+                del edge_feat_chunk, row_chunk, col_chunk
             edge_count = torch.zeros(h.size(0), device=h.device)
             edge_count.index_add_(0, row, torch.ones(row.size(0), device=h.device))
             edge_count.index_add_(0, col, torch.ones(col.size(0), device=h.device))
             edge_count = edge_count.clamp(min=1).unsqueeze(1)
-            
             node_edge_agg = node_edge_agg / edge_count
-            
-            # Fuse node and edge information
             h = self.edge_node_fusion(torch.cat([h, node_edge_agg], dim=1))
         
         # Store representations from all layers for multi-scale aggregation
@@ -610,28 +627,46 @@ class EdgeFeatureGIN(nn.Module):
         if self.aggregation == 'concat' and layer_representations:
             h = torch.cat(layer_representations, dim=1)
         
-        # Create edge representations
+        # Chunked edge representation and classification
         row, col = edge_index
-        src_features = h[row]  # [num_edges, hidden_dim or hidden_dim * num_layers]
-        dst_features = h[col]  # [num_edges, hidden_dim or hidden_dim * num_layers]
-        
-        # Combine source and destination features
-        if self.aggregation == 'sum':
-            edge_repr = src_features + dst_features
-            edge_repr = torch.cat([edge_repr, src_features - dst_features], dim=1)
-        elif self.aggregation == 'mean':
-            edge_repr = (src_features + dst_features) / 2
-            edge_repr = torch.cat([edge_repr, torch.abs(src_features - dst_features)], dim=1)
-        elif self.aggregation == 'max':
-            edge_repr = torch.max(src_features, dst_features)
-            edge_repr = torch.cat([edge_repr, torch.min(src_features, dst_features)], dim=1)
-        else:  # concat
-            edge_repr = torch.cat([src_features, dst_features], dim=1)
-        
-        # Final edge classification
-        logits = self.edge_classifier(edge_repr)  # [num_edges, num_classes]
-        
-        return logits
+        num_edges_total = edge_index.shape[1]
+        if num_edges_total > 500000:
+            chunk_size = 250000
+            logits_chunks = []
+            for i in range(0, num_edges_total, chunk_size):
+                end_idx = min(i + chunk_size, num_edges_total)
+                src_features = h[row[i:end_idx]]
+                dst_features = h[col[i:end_idx]]
+                if self.aggregation == 'sum':
+                    edge_repr = src_features + dst_features
+                    edge_repr = torch.cat([edge_repr, src_features - dst_features], dim=1)
+                elif self.aggregation == 'mean':
+                    edge_repr = (src_features + dst_features) / 2
+                    edge_repr = torch.cat([edge_repr, torch.abs(src_features - dst_features)], dim=1)
+                elif self.aggregation == 'max':
+                    edge_repr = torch.max(src_features, dst_features)
+                    edge_repr = torch.cat([edge_repr, torch.min(src_features, dst_features)], dim=1)
+                else:
+                    edge_repr = torch.cat([src_features, dst_features], dim=1)
+                logits_chunks.append(self.edge_classifier(edge_repr))
+                del src_features, dst_features, edge_repr
+            return torch.cat(logits_chunks, dim=0)
+        else:
+            src_features = h[row]
+            dst_features = h[col]
+            if self.aggregation == 'sum':
+                edge_repr = src_features + dst_features
+                edge_repr = torch.cat([edge_repr, src_features - dst_features], dim=1)
+            elif self.aggregation == 'mean':
+                edge_repr = (src_features + dst_features) / 2
+                edge_repr = torch.cat([edge_repr, torch.abs(src_features - dst_features)], dim=1)
+            elif self.aggregation == 'max':
+                edge_repr = torch.max(src_features, dst_features)
+                edge_repr = torch.cat([edge_repr, torch.min(src_features, dst_features)], dim=1)
+            else:
+                edge_repr = torch.cat([src_features, dst_features], dim=1)
+            logits = self.edge_classifier(edge_repr)
+            return logits
 
 def get_model(model_type, **kwargs):
     """

@@ -189,12 +189,8 @@ def train_model_with_memory_management(model, train_data, val_data, epochs=50, l
             memory_after_train = torch.cuda.memory_allocated() / 1024**3
             print(f"  GPU memory after train data: {memory_after_train:.2f} GB")
         
-        print(f"🔄 Moving validation data to {device}...")
-        val_data = val_data.to(device)
-        
-        if str(device_obj).startswith('cuda'):
-            memory_after_val = torch.cuda.memory_allocated() / 1024**3
-            print(f"  GPU memory after val data: {memory_after_val:.2f} GB")
+        # Keep validation data on CPU to minimize peak GPU memory; we'll move it during evaluation only
+        print(f"🔄 Keeping validation data on CPU to reduce GPU memory usage")
             
     except Exception as e:
         print(f"❌ Error moving data to {device}: {e}")
@@ -264,11 +260,16 @@ def train_model_with_memory_management(model, train_data, val_data, epochs=50, l
         # Validation
         model.eval()
         with torch.no_grad():
-            val_logits = model(val_data.x, val_data.edge_index, val_data.edge_attr)
-            val_loss = criterion(val_logits, val_data.y)
-            
+            # Move validation data to device temporarily
+            val_data_device = val_data.to(device)
+            val_logits = model(val_data_device.x, val_data_device.edge_index, val_data_device.edge_attr)
+            val_loss = criterion(val_logits, val_data_device.y)
             val_preds = val_logits.argmax(dim=1)
-            val_f1 = f1_score(val_data.y.cpu(), val_preds.cpu(), average='binary')
+            val_f1 = f1_score(val_data_device.y.cpu(), val_preds.cpu(), average='binary')
+            # Free GPU memory used by validation
+            del val_data_device, val_logits, val_preds
+            if str(device_obj).startswith('cuda'):
+                torch.cuda.empty_cache()
         
         # Update history
         history['train_loss'].append(loss.item())
