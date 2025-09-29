@@ -62,7 +62,19 @@ def load_data(memory_efficient=True):
     all_test_data = []
     
     for dataset in datasets:
-        file_path = GRAPHS_DIR / f'ibm_aml_{dataset}_enhanced_splits.pt'
+        # Try fixed preprocessing files first, fallback to enhanced
+        fixed_file_path = GRAPHS_DIR / f'ibm_aml_{dataset}_fixed_splits.pt'
+        enhanced_file_path = GRAPHS_DIR / f'ibm_aml_{dataset}_enhanced_splits.pt'
+        
+        if fixed_file_path.exists():
+            file_path = fixed_file_path
+            print(f"Using FIXED preprocessing for {dataset}")
+        elif enhanced_file_path.exists():
+            file_path = enhanced_file_path
+            print(f"Using ENHANCED preprocessing for {dataset} (may have invalid edges)")
+        else:
+            print(f"❌ No preprocessed file found for {dataset}")
+            continue
         
         if file_path.exists():
             print(f"Loading {dataset}...")
@@ -109,33 +121,32 @@ def load_data(memory_efficient=True):
     print(f"  Node features: {train_data.x.shape[1]}")
     print(f"  Edge features: {train_data.edge_attr.shape[1]}")
     
-    # Validate and fix edge indices
-    def validate_edges(data, split_name):
-        print(f"🔍 Validating {split_name} edges...")
+    # Quick validation check (should pass with fixed preprocessing)
+    def quick_validate_edges(data, split_name):
         edge_index = data.edge_index
         num_nodes = data.num_nodes
-        
         max_idx = edge_index.max().item()
         min_idx = edge_index.min().item()
         
         if max_idx >= num_nodes or min_idx < 0:
-            print(f"  ⚠️ Invalid edge indices found! Filtering...")
-            valid_mask = (edge_index[0] < num_nodes) & (edge_index[1] < num_nodes) & \
-                        (edge_index[0] >= 0) & (edge_index[1] >= 0)
-            
-            data.edge_index = edge_index[:, valid_mask]
-            data.edge_attr = data.edge_attr[valid_mask]
-            data.y = data.y[valid_mask]
-            
-            print(f"  ✅ Filtered to {data.num_edges:,} valid edges")
+            print(f"⚠️ {split_name}: Invalid edge indices detected! Range: [{min_idx}, {max_idx}], Nodes: {num_nodes}")
+            print(f"   This suggests you need to run fixed preprocessing first.")
+            return False
         else:
-            print(f"  ✅ All edges valid")
-        
-        return data
+            print(f"✅ {split_name}: All {data.num_edges:,} edges have valid indices")
+            return True
     
-    train_data = validate_edges(train_data, "train")
-    val_data = validate_edges(val_data, "validation")
-    test_data = validate_edges(test_data, "test")
+    # Validate all splits
+    train_valid = quick_validate_edges(train_data, "Train")
+    val_valid = quick_validate_edges(val_data, "Validation") 
+    test_valid = quick_validate_edges(test_data, "Test")
+    
+    if not (train_valid and val_valid and test_valid):
+        print("❌ Invalid edge indices detected!")
+        print("🔧 Solution: Run the fixed preprocessing first:")
+        print("   1. Use colab_preprocess_fixed.py to create fixed data")
+        print("   2. Then run training again")
+        raise ValueError("Invalid edge indices - run fixed preprocessing first")
     
     return train_data, val_data, test_data
 
