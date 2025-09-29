@@ -357,9 +357,22 @@ def calculate_class_weights(train_data):
 def train_model(model, train_data, val_data, epochs=50, lr=0.001, device='cpu'):
     """Train a single model"""
     
-    # CUDA FIX: Safe data transfer to device
+    # CUDA DEBUGGING: Enable blocking for better error messages
+    if device == 'cuda':
+        import os
+        os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+        print("🔧 CUDA_LAUNCH_BLOCKING enabled for debugging")
+    
+    # CUDA FIX: Safe model transfer to device
     print(f"🔄 Moving model to {device}...")
-    model = model.to(device)
+    try:
+        model = model.to(device)
+        print(f"✅ Model successfully moved to {device}")
+    except Exception as e:
+        print(f"❌ Error moving model to {device}: {e}")
+        print("🔄 Falling back to CPU for model...")
+        device = 'cpu'
+        model = model.cpu()
     
     print(f"🔄 Moving training data to {device}...")
     try:
@@ -539,9 +552,41 @@ def main():
     print("🚀 STARTING GNN MODEL TRAINING PIPELINE")
     print("="*60)
     
-    # Setup device
+    # Setup device with comprehensive debugging
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
+    
+    # CUDA DEBUGGING: Detailed device information
+    if torch.cuda.is_available():
+        print(f"🔧 CUDA Debug Info:")
+        print(f"  CUDA version: {torch.version.cuda}")
+        print(f"  Device count: {torch.cuda.device_count()}")
+        print(f"  Current device: {torch.cuda.current_device()}")
+        print(f"  Device name: {torch.cuda.get_device_name()}")
+        
+        # Memory info
+        memory_allocated = torch.cuda.memory_allocated() / 1024**3
+        memory_reserved = torch.cuda.memory_reserved() / 1024**3
+        print(f"  Memory allocated: {memory_allocated:.2f} GB")
+        print(f"  Memory reserved: {memory_reserved:.2f} GB")
+        
+        # Clear cache
+        torch.cuda.empty_cache()
+        print(f"  ✅ CUDA cache cleared")
+        
+        # Test basic CUDA operations
+        try:
+            test_tensor = torch.randn(10, 10).cuda()
+            test_result = test_tensor @ test_tensor.T
+            print(f"  ✅ Basic CUDA operations working")
+            del test_tensor, test_result
+            torch.cuda.empty_cache()
+        except Exception as e:
+            print(f"  ❌ Basic CUDA test failed: {e}")
+            device = torch.device('cpu')
+            print(f"  🔄 Falling back to CPU")
+    else:
+        print("🔧 CUDA not available, using CPU")
     
     # Load data
     train_data, val_data, test_data = load_data()
@@ -555,6 +600,20 @@ def main():
         'GAT': SimpleGAT(node_features, edge_features, hidden_dim=64, heads=4),
         'GIN': SimpleGIN(node_features, edge_features, hidden_dim=64)
     }
+    
+    # CUDA SAFETY: Test model creation on CUDA first
+    if device.type == 'cuda':
+        print("🔧 Testing model creation on CUDA...")
+        try:
+            test_model = SimpleGCN(node_features, edge_features, hidden_dim=32)  # Smaller test model
+            test_model = test_model.cuda()
+            print("✅ Model creation on CUDA successful")
+            del test_model
+            torch.cuda.empty_cache()
+        except Exception as e:
+            print(f"❌ Model creation on CUDA failed: {e}")
+            print("🔄 Switching to CPU for safety")
+            device = torch.device('cpu')
     
     # Training configuration
     epochs = 50
