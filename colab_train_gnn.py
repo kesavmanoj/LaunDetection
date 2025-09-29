@@ -314,8 +314,25 @@ def load_data():
             data.y = data.y[valid_mask]
             
             print(f"  ✅ Filtered to {data.num_edges:,} valid edges")
+            
+            # ADDITIONAL FIX: Ensure edge_index is contiguous and properly formatted
+            data.edge_index = data.edge_index.contiguous()
+            data.edge_attr = data.edge_attr.contiguous()
+            data.y = data.y.contiguous()
+            
+            # Verify after filtering
+            new_max = data.edge_index.max().item()
+            new_min = data.edge_index.min().item()
+            print(f"  ✅ After filtering: [{new_min}, {new_max}] vs {num_nodes} nodes")
+            
         else:
             print(f"  ✅ All edges valid")
+        
+        # Ensure all tensors are contiguous
+        data.edge_index = data.edge_index.contiguous()
+        data.edge_attr = data.edge_attr.contiguous() 
+        data.y = data.y.contiguous()
+        data.x = data.x.contiguous()
         
         return data
     
@@ -339,9 +356,33 @@ def calculate_class_weights(train_data):
 
 def train_model(model, train_data, val_data, epochs=50, lr=0.001, device='cpu'):
     """Train a single model"""
+    
+    # CUDA FIX: Safe data transfer to device
+    print(f"🔄 Moving model to {device}...")
     model = model.to(device)
-    train_data = train_data.to(device)
-    val_data = val_data.to(device)
+    
+    print(f"🔄 Moving training data to {device}...")
+    try:
+        # Move data piece by piece for better error tracking
+        train_data.x = train_data.x.to(device)
+        train_data.edge_index = train_data.edge_index.to(device)
+        train_data.edge_attr = train_data.edge_attr.to(device)
+        train_data.y = train_data.y.to(device)
+        
+        val_data.x = val_data.x.to(device)
+        val_data.edge_index = val_data.edge_index.to(device)
+        val_data.edge_attr = val_data.edge_attr.to(device)
+        val_data.y = val_data.y.to(device)
+        
+        print(f"✅ Data successfully moved to {device}")
+        
+    except Exception as e:
+        print(f"❌ Error moving data to {device}: {e}")
+        print("🔄 Falling back to CPU training...")
+        device = 'cpu'
+        model = model.cpu()
+        train_data = train_data.cpu()
+        val_data = val_data.cpu()
     
     # CUDA FIX: Additional validation after moving to device
     print(f"📊 Final data validation on {device}:")
