@@ -165,29 +165,74 @@ class EdgeFeatureGCN(nn.Module):
             # Dropout
             h = F.dropout(h, p=self.dropout, training=self.training)
         
-        # Create edge representations by combining source and target node features
+        # MEMORY OPTIMIZATION: Create edge representations with chunking for large graphs
         row, col = edge_index
-        edge_repr = torch.cat([h[row], h[col]], dim=1)  # [num_edges, hidden_dim * 2]
+        num_edges = edge_index.shape[1]
         
-        # Integrate edge features if available
-        if self.use_edge_features and edge_attr is not None:
-            # Encode edge features
-            edge_feat = self.edge_encoder(edge_attr)  # [num_edges, hidden_dim]
+        if num_edges > 2000000:  # 2M edge threshold for chunking
+            chunk_size = 1000000  # 1M edges per chunk
+            edge_logits = []
             
-            # Compute attention weights for edge feature integration
-            attention_input = torch.cat([h[row], h[col], edge_attr], dim=1)
-            attention_weights = self.edge_attention(attention_input)  # [num_edges, 1]
+            for i in range(0, num_edges, chunk_size):
+                end_idx = min(i + chunk_size, num_edges)
+                
+                # Get chunk indices
+                chunk_row = row[i:end_idx]
+                chunk_col = col[i:end_idx]
+                
+                # Create chunk edge representation
+                chunk_edge_repr = torch.cat([h[chunk_row], h[chunk_col]], dim=1)
+                
+                # Integrate edge features if available
+                if self.use_edge_features and edge_attr is not None:
+                    chunk_edge_attr = edge_attr[i:end_idx]
+                    
+                    # Encode edge features
+                    chunk_edge_feat = self.edge_encoder(chunk_edge_attr)
+                    
+                    # Compute attention weights for edge feature integration
+                    attention_input = torch.cat([h[chunk_row], h[chunk_col], chunk_edge_attr], dim=1)
+                    attention_weights = self.edge_attention(attention_input)
+                    
+                    # Apply attention to edge features
+                    weighted_edge_feat = attention_weights * chunk_edge_feat
+                    
+                    # Combine with edge representation
+                    chunk_edge_repr = chunk_edge_repr + torch.cat([weighted_edge_feat, weighted_edge_feat], dim=1)
+                
+                # Classify chunk
+                chunk_logits = self.classifier(chunk_edge_repr)
+                edge_logits.append(chunk_logits)
+                
+                # Clean up intermediate tensors
+                del chunk_edge_repr, chunk_row, chunk_col
+                if self.use_edge_features and edge_attr is not None:
+                    del chunk_edge_attr, chunk_edge_feat, attention_input, attention_weights, weighted_edge_feat
             
-            # Apply attention to edge features
-            weighted_edge_feat = attention_weights * edge_feat  # [num_edges, hidden_dim]
+            return torch.cat(edge_logits, dim=0)
+        else:
+            # Standard processing for smaller edge sets
+            edge_repr = torch.cat([h[row], h[col]], dim=1)  # [num_edges, hidden_dim * 2]
             
-            # Combine with edge representation
-            edge_repr = edge_repr + torch.cat([weighted_edge_feat, weighted_edge_feat], dim=1)
-        
-        # Final classification
-        logits = self.classifier(edge_repr)  # [num_edges, num_classes]
-        
-        return logits
+            # Integrate edge features if available
+            if self.use_edge_features and edge_attr is not None:
+                # Encode edge features
+                edge_feat = self.edge_encoder(edge_attr)  # [num_edges, hidden_dim]
+                
+                # Compute attention weights for edge feature integration
+                attention_input = torch.cat([h[row], h[col], edge_attr], dim=1)
+                attention_weights = self.edge_attention(attention_input)  # [num_edges, 1]
+                
+                # Apply attention to edge features
+                weighted_edge_feat = attention_weights * edge_feat  # [num_edges, hidden_dim]
+                
+                # Combine with edge representation
+                edge_repr = edge_repr + torch.cat([weighted_edge_feat, weighted_edge_feat], dim=1)
+            
+            # Final classification
+            logits = self.classifier(edge_repr)  # [num_edges, num_classes]
+            
+            return logits
 
 class EdgeFeatureGAT(nn.Module):
     """

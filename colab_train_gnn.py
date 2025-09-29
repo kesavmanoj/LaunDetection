@@ -60,7 +60,14 @@ if not available_datasets:
 print(f"\n🚀 Will train models on: {available_datasets}")
 
 # ============================================================================
-# SIMPLIFIED GNN MODELS FOR COLAB
+# IMPORT FULL-FEATURED GNN MODELS
+# ============================================================================
+
+# Import the sophisticated models from gnn_models.py
+exec(open('/content/drive/MyDrive/LaunDetection/gnn_models.py').read())
+
+# ============================================================================
+# SIMPLIFIED GNN MODELS FOR COLAB (BACKUP)
 # ============================================================================
 
 class SimpleGCN(nn.Module):
@@ -777,18 +784,40 @@ def main():
     node_features = train_data.x.shape[1]
     edge_features = train_data.edge_attr.shape[1]
     
-    # Define models
+    # Define models - Using full-featured implementations
     models = {
-        'GCN': SimpleGCN(node_features, edge_features, hidden_dim=64),
-        'GAT': SimpleGAT(node_features, edge_features, hidden_dim=64, heads=4),
-        'GIN': SimpleGIN(node_features, edge_features, hidden_dim=64)
+        'GCN': EdgeFeatureGCN(
+            node_feature_dim=node_features, 
+            edge_feature_dim=edge_features, 
+            hidden_dim=96,  # Reduced from 128 for memory efficiency
+            dropout=0.3,
+            use_edge_features=True
+        ),
+        'GAT': EdgeFeatureGAT(
+            node_feature_dim=node_features,
+            edge_feature_dim=edge_features, 
+            hidden_dim=96,  # Reduced from 128 for memory efficiency
+            num_heads=6,    # Reduced from 8 for memory efficiency
+            dropout=0.3,
+            use_edge_features=True
+        ),
+        'GIN': EdgeFeatureGIN(
+            node_feature_dim=node_features,
+            edge_feature_dim=edge_features,
+            hidden_dim=96,  # Reduced from 128 for memory efficiency
+            dropout=0.3,
+            use_edge_features=True,
+            aggregation='sum'
+        )
     }
+    
+    print("🔧 Using full-featured GNN models with memory optimization")
     
     # CUDA SAFETY: Test model creation on CUDA first
     if device.type == 'cuda':
         print("🔧 Testing model creation on CUDA...")
         try:
-            test_model = SimpleGCN(node_features, edge_features, hidden_dim=32)  # Smaller test model
+            test_model = EdgeFeatureGCN(node_features, edge_features, hidden_dim=32)  # Smaller test model
             test_model = test_model.cuda()
             print("✅ Model creation on CUDA successful")
             del test_model
