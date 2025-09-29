@@ -19,8 +19,24 @@ else:
 import sys
 sys.path.append('/content/drive/MyDrive/LaunDetection')
 
+# Force reload modules to ensure we get the latest version
+import importlib
+if 'preprocessing_fixed' in sys.modules:
+    importlib.reload(sys.modules['preprocessing_fixed'])
+
 # Import and run the fixed preprocessing
 from preprocessing_fixed import process_datasets
+
+# Test column detection first
+print("🧪 Testing column detection...")
+try:
+    from test_preprocessing import test_column_detection
+    if not test_column_detection():
+        print("❌ Column detection test failed!")
+        print("🔧 Check if the files are properly synced from GitHub")
+except Exception as e:
+    print(f"⚠️ Could not run column test: {e}")
+    print("Proceeding with preprocessing anyway...")
 
 print("🔧 RUNNING FIXED PREPROCESSING")
 print("This will create new preprocessed files without invalid edge indices")
