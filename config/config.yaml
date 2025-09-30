@@ -1,0 +1,63 @@
+# AML Multi-GNN Configuration File
+
+# Model Architecture
+model:
+  name: "MVGNN-basic"
+  hidden_dim: 64
+  num_layers: 3
+  dropout: 0.3
+  activation: "relu"
+  message_combination: "add"  # "add" or "cat"
+  use_line_graph: false  # Start simple, add later
+
+# Training Configuration
+training:
+  batch_size: 32
+  learning_rate: 0.001
+  weight_decay: 1e-4
+  num_epochs: 100
+  early_stopping_patience: 10
+  gradient_clip_norm: 1.0
+  
+  # Class imbalance handling
+  class_weights: true
+  focal_loss: false  # Add later
+  smote_sampling: false  # Add later
+
+# Data Configuration
+data:
+  dataset: "IBM_AML_HI_Small"
+  train_ratio: 0.6
+  val_ratio: 0.2
+  test_ratio: 0.2
+  temporal_split: true
+  
+  # Graph construction
+  min_transactions: 1
+  max_nodes: 1000000  # For memory management
+  max_edges: 10000000
+
+# Evaluation Metrics
+evaluation:
+  primary_metric: "f1_score"
+  metrics: ["f1_score", "precision", "recall", "roc_auc", "pr_auc"]
+  threshold_optimization: true
+
+# Hardware Configuration
+hardware:
+  device: "cuda"  # Will be set automatically in Colab
+  mixed_precision: true
+  gradient_accumulation_steps: 1
+  max_memory_usage: 0.8  # 80% of available GPU memory
+
+# Logging and Monitoring
+logging:
+  level: "INFO"
+  log_dir: "results/experiments"
+  save_models: true
+  save_visualizations: true
+  wandb_project: "aml-multignn"  # Optional
+
+# Reproducibility
+random_seed: 42
+deterministic: true
