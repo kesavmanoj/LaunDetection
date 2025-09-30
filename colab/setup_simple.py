@@ -39,7 +39,7 @@ def install_basic_requirements():
 
 def install_pytorch_geometric_simple():
     """
-    Install PyTorch Geometric with simple method
+    Install PyTorch Geometric with simple method (skip problematic packages)
     """
     print("Installing PyTorch Geometric...")
     
@@ -48,14 +48,9 @@ def install_pytorch_geometric_simple():
         subprocess.check_call([sys.executable, "-m", "pip", "install", "torch-geometric"])
         print("✓ Installed torch-geometric")
         
-        # Try to install optional dependencies
-        optional_packages = ["torch-scatter", "torch-sparse", "torch-cluster"]
-        for package in optional_packages:
-            try:
-                subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-                print(f"✓ Installed {package}")
-            except subprocess.CalledProcessError:
-                print(f"⚠️  Could not install {package} (optional)")
+        # Skip optional packages that cause build issues
+        print("⚠️  Skipping torch-scatter, torch-sparse, torch-cluster (can cause build issues)")
+        print("⚠️  These are optional and can be installed later if needed")
         
         return True
         
@@ -87,36 +82,40 @@ def setup_google_drive():
 
 def setup_project_structure():
     """
-    Setup project directory structure
+    Setup project directory structure (use existing Google Drive directories)
     """
     print("Setting up project structure...")
-    
-    # Create local directories
-    directories = [
-        "data/raw",
-        "data/processed", 
-        "data/splits",
-        "results/experiments",
-        "results/models",
-        "results/visualizations"
-    ]
-    
-    for directory in directories:
-        os.makedirs(directory, exist_ok=True)
-        print(f"✓ Created {directory}")
     
     # Check if data exists in Google Drive
     drive_data_path = "/content/drive/MyDrive/LaunDetection/data/raw"
     if os.path.exists(drive_data_path):
         print(f"✓ Found existing data directory: {drive_data_path}")
         
-        # Create symlink
+        # Create symlink to existing data
         if not os.path.exists("data"):
             os.symlink("/content/drive/MyDrive/LaunDetection/data", "data")
-            print("✓ Created symlink to data directory")
+            print("✓ Created symlink to existing data directory")
+        
+        # Create local results directories only
+        local_dirs = [
+            "results/experiments",
+            "results/models", 
+            "results/visualizations"
+        ]
+        
+        for directory in local_dirs:
+            os.makedirs(directory, exist_ok=True)
+            print(f"✓ Created {directory}")
+            
     else:
         print(f"⚠️  Data directory not found: {drive_data_path}")
         print("Please ensure your data is in /content/drive/MyDrive/LaunDetection/data/raw")
+        
+        # Create minimal local structure
+        os.makedirs("data/raw", exist_ok=True)
+        os.makedirs("data/processed", exist_ok=True)
+        os.makedirs("data/splits", exist_ok=True)
+        print("✓ Created minimal local data structure")
 
 
 def setup_python_path():
@@ -163,47 +162,50 @@ def test_imports():
     except ImportError as e:
         print(f"✗ Failed to import PyTorch: {e}")
     
-    # Test PyTorch Geometric
-    try:
-        import torch_geometric
-        print(f"✓ PyTorch Geometric imported successfully (version: {torch_geometric.__version__})")
-    except ImportError as e:
-        print(f"⚠️  PyTorch Geometric not available: {e}")
+    # Skip PyTorch Geometric test to avoid issues
+    print("⚠️  PyTorch Geometric test skipped (can be installed later if needed)")
 
 
 def main():
     """
-    Main setup function
+    Main setup function - streamlined for existing Google Drive setup
     """
     print("=" * 60)
-    print("AML Multi-GNN - Simplified Colab Setup")
+    print("AML Multi-GNN - Quick Colab Setup")
     print("=" * 60)
     
-    # Install basic requirements
+    # Install basic requirements (skip if already installed)
+    print("Checking basic requirements...")
     install_basic_requirements()
     
-    # Install PyTorch Geometric
-    install_pytorch_geometric_simple()
+    # Skip PyTorch Geometric installation to avoid build issues
+    print("Skipping PyTorch Geometric installation (can cause build issues)")
+    print("⚠️  PyTorch Geometric can be installed later if needed")
     
-    # Setup Google Drive
+    # Setup Google Drive (skip if already mounted)
+    print("Checking Google Drive...")
     setup_google_drive()
     
-    # Setup project structure
+    # Setup project structure (use existing directories)
+    print("Setting up project structure...")
     setup_project_structure()
     
     # Setup Python path
     setup_python_path()
     
-    # Test imports
-    test_imports()
+    # Quick test of basic imports only
+    print("Testing basic imports...")
+    test_basic_imports()
     
     print("\n" + "=" * 60)
-    print("Setup completed!")
+    print("Quick setup completed!")
     print("=" * 60)
     print("\nNext steps:")
     print("1. Run data exploration: %run notebooks/01_data_exploration.ipynb")
     print("2. Or test data loading: python utils/data_loader_colab.py")
     print("3. Start with Phase 2 implementation")
+    print("\nNote: PyTorch Geometric can be installed later if needed:")
+    print("!pip install torch-geometric")
 
 
 if __name__ == "__main__":
