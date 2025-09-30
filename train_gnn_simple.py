@@ -484,8 +484,13 @@ def main():
         finally:
             # Move trained model to CPU and free GPU memory before starting next model
             try:
-                if trained_model is not None:
-                    trained_models[model_name] = trained_model.cpu()
+                # Safely get local trained_model if it exists
+                try:
+                    tm = trained_model
+                except UnboundLocalError:
+                    tm = None
+                if tm is not None:
+                    trained_models[model_name] = tm.cpu()
             except Exception as e:
                 print(f"⚠️ Could not move {model_name} to CPU: {e}")
             # Explicitly drop local refs
