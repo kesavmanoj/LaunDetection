@@ -135,7 +135,7 @@ def load_data(memory_efficient=True):
     
     return train_data, val_data, test_data
 
-def calculate_class_weights(train_data):
+def calculate_class_weights(train_data, boost_factor=1.0):
     """Calculate class weights for imbalanced data with zero-division guards"""
     labels = train_data.y.detach().cpu().numpy()
     total = len(labels)
@@ -149,13 +149,15 @@ def calculate_class_weights(train_data):
     else:
         pos_weight = total / (2.0 * pos_count)
         neg_weight = total / (2.0 * neg_count)
+        # Optionally boost the positive class weight to fight extreme imbalance
+        pos_weight *= boost_factor
         weights = torch.tensor([neg_weight, pos_weight], dtype=torch.float32)
 
     pos_ratio = (pos_count / total * 100.0) if total > 0 else 0.0
     print(f"Class distribution: {neg_count:,} negative, {pos_count:,} positive ({pos_ratio:.2f}% positive)")
     return weights
 
-def train_model_with_memory_management(model, train_data, val_data, epochs=50, lr=0.001, device='cuda', max_edges_per_batch=1000000):
+def train_model_with_memory_management(model, train_data, val_data, epochs=50, lr=0.001, device='cuda', max_edges_per_batch=1000000, use_focal_loss=True):
     """Train a single model with memory optimization and debugging"""
     print(f"🚀 Training {model.__class__.__name__} on {device}")
     
@@ -201,8 +203,22 @@ def train_model_with_memory_management(model, train_data, val_data, epochs=50, l
         val_data = val_data.cpu()
     
     # Setup training
-    class_weights = calculate_class_weights(train_data).to(device)
-    criterion = nn.CrossEntropyLoss(weight=class_weights)
+    class_weights = calculate_class_weights(train_data, boost_factor=3.0).to(device)
+    base_ce = nn.CrossEntropyLoss(weight=class_weights, reduction='none')
+
+    def focal_ce_loss(logits, targets, gamma=2.0):
+        # per-sample CE
+        ce = base_ce(logits, targets)
+        # p_t = exp(-ce)
+        pt = torch.exp(-ce)
+        # focal modulation
+        loss = ((1.0 - pt) ** gamma) * ce
+        return loss.mean()
+
+    def ce_loss(logits, targets):
+        return base_ce(logits, targets).mean()
+
+    criterion = focal_ce_loss if use_focal_loss else ce_loss
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5, factor=0.5)
     use_amp = str(device_obj).startswith('cuda') and torch.cuda.is_available()
@@ -282,11 +298,21 @@ def train_model_with_memory_management(model, train_data, val_data, epochs=50, l
             val_data_device = val_data.to(device)
             with torch.amp.autocast('cuda', enabled=use_amp):
                 val_logits = model(val_data_device.x, val_data_device.edge_index, val_data_device.edge_attr)
-                val_loss = criterion(val_logits, val_data_device.y)
-            val_preds = val_logits.argmax(dim=1)
-            val_f1 = f1_score(val_data_device.y.cpu(), val_preds.cpu(), average='binary')
+                val_loss = ce_loss(val_logits, val_data_device.y)  # use CE for validation loss reporting
+            # Threshold tuning on validation probabilities of positive class
+            val_probs = F.softmax(val_logits, dim=1)[:, 1].detach().cpu().numpy()
+            y_val = val_data_device.y.cpu().numpy()
+            # evaluate a small grid of thresholds for F1
+            thresholds = np.linspace(0.01, 0.99, 99)
+            f1s = []
+            for t in thresholds:
+                preds = (val_probs >= t).astype(np.int64)
+                f1s.append(f1_score(y_val, preds, average='binary', zero_division=0))
+            best_idx = int(np.argmax(f1s))
+            best_threshold_epoch = float(thresholds[best_idx])
+            val_f1 = float(f1s[best_idx])
             # Free GPU memory used by validation
-            del val_data_device, val_logits, val_preds
+            del val_data_device, val_logits
             if str(device_obj).startswith('cuda'):
                 torch.cuda.empty_cache()
         
@@ -303,6 +329,7 @@ def train_model_with_memory_management(model, train_data, val_data, epochs=50, l
             best_val_f1 = val_f1
             no_improve = 0
             best_state = model.state_dict().copy()
+            best_threshold = best_threshold_epoch
         else:
             no_improve += 1
         
@@ -316,10 +343,14 @@ def train_model_with_memory_management(model, train_data, val_data, epochs=50, l
     # Load best model
     model.load_state_dict(best_state)
     print(f"✅ Training completed. Best Val F1: {best_val_f1:.4f}")
-    
+
+    # Persist best threshold discovered during training to history
+    if 'best_threshold' not in history:
+        history['best_threshold'] = float(locals().get('best_threshold', 0.5))
+
     return model, history
 
-def evaluate_model(model, data, split_name, device):
+def evaluate_model(model, data, split_name, device, threshold: float | None = None):
     """Evaluate model on a dataset split"""
     model.eval()
     data = data.to(device)
@@ -327,7 +358,10 @@ def evaluate_model(model, data, split_name, device):
     with torch.no_grad():
         logits = model(data.x, data.edge_index, data.edge_attr)
         probs = F.softmax(logits, dim=1)
-        preds = logits.argmax(dim=1)
+        if threshold is None:
+            preds = logits.argmax(dim=1)
+        else:
+            preds = (probs[:, 1] >= threshold).long()
         
         y_true = data.y.cpu().numpy()
         y_pred = preds.cpu().numpy()
@@ -569,9 +603,20 @@ def main():
         eval_device = torch.device('cpu')
         model_cpu = model.to(eval_device)
         
-        train_metrics = evaluate_model(model_cpu, train_data, "Train", eval_device)
-        val_metrics = evaluate_model(model_cpu, val_data, "Validation", eval_device)
-        test_metrics = evaluate_model(model_cpu, test_data, "Test", eval_device)
+        # Use tuned threshold from training history if available
+        best_threshold = None
+        try:
+            idx = model_names.index(name)
+            h = histories[idx]
+            if isinstance(h, dict) and 'best_threshold' in h:
+                best_threshold = float(h['best_threshold'])
+                print(f" Using tuned threshold for {name}: {best_threshold:.2f}")
+        except Exception:
+            pass
+
+        train_metrics = evaluate_model(model_cpu, train_data, "Train", eval_device, threshold=best_threshold)
+        val_metrics = evaluate_model(model_cpu, val_data, "Validation", eval_device, threshold=best_threshold)
+        test_metrics = evaluate_model(model_cpu, test_data, "Test", eval_device, threshold=best_threshold)
         
         results[name] = test_metrics
     
