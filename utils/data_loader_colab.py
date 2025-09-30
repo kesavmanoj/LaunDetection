@@ -11,12 +11,14 @@ from typing import Dict, List, Tuple, Optional, Any
 import logging
 
 
-def load_existing_data(data_path: str = "/content/drive/MyDrive/LaunDetection/data/raw") -> Dict[str, Any]:
+def load_existing_data(data_path: str = "/content/drive/MyDrive/LaunDetection/data/raw", 
+                      use_small_dataset: bool = True) -> Dict[str, Any]:
     """
     Load existing IBM AML dataset from Google Drive
     
     Args:
         data_path: Path to existing data directory
+        use_small_dataset: If True, only load HI-Small dataset (recommended for exploration)
     
     Returns:
         Dictionary containing loaded data
@@ -45,15 +47,39 @@ def load_existing_data(data_path: str = "/content/drive/MyDrive/LaunDetection/da
     
     print(f"Found {len(csv_files)} CSV files and {len(parquet_files)} Parquet files")
     
-    # Load CSV files
-    for csv_file in csv_files:
+    # Filter files based on dataset size preference
+    if use_small_dataset:
+        print("Using HI-Small dataset for faster loading...")
+        target_files = [f for f in csv_files if 'HI-Small' in f]
+        print(f"Loading {len(target_files)} HI-Small files:")
+    else:
+        print("Loading all CSV files (this may take longer)...")
+        target_files = csv_files
+    
+    # Load CSV files with progress tracking
+    for i, csv_file in enumerate(target_files):
         file_path = os.path.join(data_path, csv_file)
+        file_size = os.path.getsize(file_path) / 1024 / 1024  # MB
+        
+        print(f"Loading {csv_file} ({file_size:.1f} MB)... [{i+1}/{len(target_files)}]")
+        
         try:
-            df = pd.read_csv(file_path)
+            # For large files, read in chunks to avoid memory issues
+            if file_size > 100:  # If file is larger than 100MB
+                print(f"  Large file detected, reading in chunks...")
+                df = pd.read_csv(file_path, chunksize=10000)
+                # For now, just read the first chunk to get structure
+                df = next(df)
+                print(f"  ✓ Loaded sample of {csv_file}: {df.shape} (first 10k rows)")
+            else:
+                df = pd.read_csv(file_path)
+                print(f"  ✓ Loaded {csv_file}: {df.shape}")
+            
             data[csv_file.replace('.csv', '')] = df
-            print(f"✓ Loaded {csv_file}: {df.shape}")
+            
         except Exception as e:
-            print(f"✗ Failed to load {csv_file}: {e}")
+            print(f"  ✗ Failed to load {csv_file}: {e}")
+            continue
     
     # Load Parquet files
     for parquet_file in parquet_files:
@@ -65,6 +91,7 @@ def load_existing_data(data_path: str = "/content/drive/MyDrive/LaunDetection/da
         except Exception as e:
             print(f"✗ Failed to load {parquet_file}: {e}")
     
+    print(f"✓ Successfully loaded {len(data)} data files")
     return data
 
 
