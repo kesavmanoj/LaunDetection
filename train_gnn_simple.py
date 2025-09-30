@@ -471,7 +471,13 @@ def main():
         trained_models[model_name] = trained_model
         histories.append(history)
         model_names.append(model_name)
-        
+
+        # Save model BEFORE cleanup so the variable is still in scope
+        torch.save({
+            'model_state_dict': trained_model.state_dict(),
+            'model_class': trained_model.__class__.__name__,
+        }, MODELS_DIR / f'{model_name.lower()}_model.pt')
+
         # Move trained model to CPU and free GPU memory before starting next model
         try:
             trained_models[model_name] = trained_model.cpu()
@@ -481,12 +487,6 @@ def main():
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
             print(f" GPU cache cleared after {model_name}")
-        
-        # Save model
-        torch.save({
-            'model_state_dict': trained_model.state_dict(),
-            'model_class': trained_model.__class__.__name__,
-        }, MODELS_DIR / f'{model_name.lower()}_model.pt')
     
     # Final evaluation
     print(f"\n{'='*50}")
