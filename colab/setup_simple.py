@@ -130,6 +130,42 @@ def setup_python_path():
         print(f"✓ Added {project_root} to Python path")
 
 
+def test_basic_imports():
+    """
+    Test if key packages can be imported (basic only)
+    """
+    print("Testing basic imports...")
+    
+    test_packages = [
+        ("pandas", "pd"),
+        ("numpy", "np"),
+        ("matplotlib.pyplot", "plt"),
+        ("seaborn", "sns"),
+        ("sklearn", "sklearn")
+    ]
+    
+    for package, alias in test_packages:
+        try:
+            exec(f"import {package} as {alias}")
+            print(f"✓ {package} imported successfully")
+        except ImportError as e:
+            print(f"✗ Failed to import {package}: {e}")
+    
+    # Test PyTorch (usually pre-installed in Colab)
+    try:
+        import torch
+        print(f"✓ PyTorch imported successfully (version: {torch.__version__})")
+        if torch.cuda.is_available():
+            print(f"✓ GPU available: {torch.cuda.get_device_name(0)}")
+        else:
+            print("⚠️  GPU not available")
+    except ImportError as e:
+        print(f"⚠️  PyTorch not available: {e}")
+    
+    # Skip PyTorch Geometric test to avoid issues
+    print("⚠️  PyTorch Geometric test skipped (can be installed later if needed)")
+
+
 def test_imports():
     """
     Test if key packages can be imported
