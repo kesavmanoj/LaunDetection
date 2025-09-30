@@ -462,31 +462,50 @@ def main():
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
             print(f" GPU cache cleared before {model_name}")
-        
-        # Train model
-        trained_model, history = train_model_with_memory_management(
-            model, train_data, val_data, epochs=30, lr=0.001
-        )
-        
-        trained_models[model_name] = trained_model
-        histories.append(history)
-        model_names.append(model_name)
 
-        # Save model BEFORE cleanup so the variable is still in scope
-        torch.save({
-            'model_state_dict': trained_model.state_dict(),
-            'model_class': trained_model.__class__.__name__,
-        }, MODELS_DIR / f'{model_name.lower()}_model.pt')
-
-        # Move trained model to CPU and free GPU memory before starting next model
+        trained_model = None
+        history = None
         try:
-            trained_models[model_name] = trained_model.cpu()
-        except Exception:
-            pass
-        del model, trained_model, history
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            print(f" GPU cache cleared after {model_name}")
+            # Train model
+            trained_model, history = train_model_with_memory_management(
+                model, train_data, val_data, epochs=30, lr=0.001
+            )
+
+            trained_models[model_name] = trained_model
+            histories.append(history)
+            model_names.append(model_name)
+
+            # Save model BEFORE cleanup so the variable is still in scope
+            torch.save({
+                'model_state_dict': trained_model.state_dict(),
+                'model_class': trained_model.__class__.__name__,
+            }, MODELS_DIR / f'{model_name.lower()}_model.pt')
+            print(f" Saved {model_name} model checkpoint.")
+        finally:
+            # Move trained model to CPU and free GPU memory before starting next model
+            try:
+                if trained_model is not None:
+                    trained_models[model_name] = trained_model.cpu()
+            except Exception as e:
+                print(f"⚠️ Could not move {model_name} to CPU: {e}")
+            # Explicitly drop local refs
+            try:
+                del trained_model
+            except Exception:
+                pass
+            try:
+                del history
+            except Exception:
+                pass
+            try:
+                del model
+            except Exception:
+                pass
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                mem_alloc = torch.cuda.memory_allocated() / 1024**3
+                mem_res = torch.cuda.memory_reserved() / 1024**3
+                print(f" GPU cache cleared after {model_name} | Alloc: {mem_alloc:.2f} GB, Reserved: {mem_res:.2f} GB")
     
     # Final evaluation
     print(f"\n{'='*50}")
