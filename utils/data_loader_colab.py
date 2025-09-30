@@ -56,7 +56,7 @@ def load_existing_data(data_path: str = "/content/drive/MyDrive/LaunDetection/da
         print("Loading all CSV files (this may take longer)...")
         target_files = csv_files
     
-    # Load CSV files with progress tracking
+    # Load CSV files with progress tracking and memory management
     for i, csv_file in enumerate(target_files):
         file_path = os.path.join(data_path, csv_file)
         file_size = os.path.getsize(file_path) / 1024 / 1024  # MB
@@ -64,14 +64,28 @@ def load_existing_data(data_path: str = "/content/drive/MyDrive/LaunDetection/da
         print(f"Loading {csv_file} ({file_size:.1f} MB)... [{i+1}/{len(target_files)}]")
         
         try:
-            # For large files, read in chunks to avoid memory issues
-            if file_size > 100:  # If file is larger than 100MB
+            # Always use chunked reading for memory efficiency
+            if file_size > 50:  # If file is larger than 50MB, use chunks
                 print(f"  Large file detected, reading in chunks...")
-                df = pd.read_csv(file_path, chunksize=10000)
-                # For now, just read the first chunk to get structure
-                df = next(df)
-                print(f"  ✓ Loaded sample of {csv_file}: {df.shape} (first 10k rows)")
+                chunk_size = 5000  # Smaller chunks for memory efficiency
+                chunks = []
+                
+                # Read file in chunks
+                for chunk_num, chunk in enumerate(pd.read_csv(file_path, chunksize=chunk_size)):
+                    chunks.append(chunk)
+                    print(f"    Chunk {chunk_num + 1}: {chunk.shape}")
+                    
+                    # Limit to first 3 chunks to avoid memory issues
+                    if chunk_num >= 2:
+                        print(f"    Limiting to first 3 chunks to save memory...")
+                        break
+                
+                # Combine chunks
+                df = pd.concat(chunks, ignore_index=True)
+                print(f"  ✓ Loaded sample of {csv_file}: {df.shape} (first {len(chunks)} chunks)")
+                
             else:
+                # For smaller files, load normally but still be cautious
                 df = pd.read_csv(file_path)
                 print(f"  ✓ Loaded {csv_file}: {df.shape}")
             
