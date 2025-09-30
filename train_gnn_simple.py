@@ -421,8 +421,17 @@ def main():
     gat_layers = (2 if train_data.num_edges > 3000000 else 3)
     if train_data.num_edges > 3000000:
         gat_layers = 1
+    # Memory-safe GCN hidden size for large graphs
+    gcn_hidden_dim = hidden_dim if train_data.num_edges <= 3000000 else 32
 
     models = {
+        'GCN': EdgeFeatureGCN(
+            node_feature_dim=node_features,
+            edge_feature_dim=edge_features,
+            hidden_dim=gcn_hidden_dim,
+            dropout=0.3,
+            use_edge_features=True
+        ),
         'GAT': EdgeFeatureGAT(
             node_feature_dim=node_features,
             edge_feature_dim=edge_features,
@@ -475,8 +484,13 @@ def main():
                     free_gb = free_bytes / 1024**3
                 except Exception:
                     free_gb = (torch.cuda.memory_reserved() - torch.cuda.memory_allocated()) / 1024**3
-                # Require at least 2.0 GB free for GAT on large graphs; 1.0 GB otherwise
-                min_needed_gb = 2.0 if (model_name == 'GAT' and train_data.num_edges > 3000000) else 1.0
+                # Per-model minimum free memory requirement
+                if model_name == 'GAT':
+                    min_needed_gb = 2.0 if train_data.num_edges > 3000000 else 1.0
+                elif model_name == 'GCN':
+                    min_needed_gb = 1.5 if train_data.num_edges > 3000000 else 1.0
+                else:
+                    min_needed_gb = 1.0
                 if free_gb >= min_needed_gb:
                     training_device = 'cuda'
                 else:
