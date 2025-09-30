@@ -1,112 +1,120 @@
 """
-Production GNN training script – fixed for extreme class imbalance
-Updated 2025-09-30
-• boost_factor = 50.0
-• focal loss with alpha = 0.99 & gamma = 5.0
-• log-spaced threshold search 1e-4–1e-1
-• balanced batch sampling (50/50) for rare class
-• larger models imported from new gnn_models.py
+Production GNN training script – AML project
+LAST UPDATED 2025-09-30
+------------------------------------------------------------
+• Fixes PyTorch 2.6 UnpicklingError  (weights_only default)
+• Registers torch_geometric classes as safe globals
+• Uses balanced-batch training, focal loss, larger models
 """
 
-from pathlib import Path
 import os, time
-import torch.serialization as ts
-import numpy as np
-import torch, torch.nn as nn, torch.nn.functional as F
+from pathlib import Path
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score,
-    f1_score, roc_auc_score, average_precision_score
+    f1_score, roc_auc_score, average_precision_score,
 )
+import torch.serialization as ts
+from torch_geometric.data.data import Data, DataEdgeAttr, DataTensorAttr
+
 from gnn_models import get_model, count_parameters
 
 # ---------------------------------------------------------------------------#
-#  Paths & device
+#  --- 0.  SAFE-GLOBAL REGISTRATION  ---
 # ---------------------------------------------------------------------------#
-BASE = Path("/content/drive/MyDrive/LaunDetection")
+# PyTorch 2.6 blocks un-registered globals when weights_only=False.
+# We explicitly allow list the two Data subclasses used in our split file.
+ts.add_safe_globals([Data, DataEdgeAttr, DataTensorAttr])
+# ---------------------------------------------------------------------------#
+
+BASE   = Path("/content/drive/MyDrive/LaunDetection")
 GRAPHS = BASE / "data" / "graphs"
 MODELS = BASE / "models"; MODELS.mkdir(exist_ok=True)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 if device.type == "cuda":
-    print(f"✔ CUDA: {torch.cuda.get_device_name()}  |  {torch.version.cuda}")
+    print(f"✔ CUDA: {torch.cuda.get_device_name()} | {torch.version.cuda}")
 
 # ---------------------------------------------------------------------------#
-#  Data loading (assumes fixed preprocessing script already run)
+#  1. Load split file  (weights_only=False)
 # ---------------------------------------------------------------------------#
 def load_split(name: str):
-    """
-    Load the previously-saved split file produced by preprocessing.
-    It contains full torch_geometric Data objects, so we must disable
-    the new ‘weights-only’ safeguard in PyTorch ≥2.6.
-    """
     fp = GRAPHS / f"ibm_aml_{name}_fixed_splits.pt"
     if not fp.exists():
-        raise FileNotFoundError(f"{fp} not found; run preprocessing first")
+        raise FileNotFoundError(f"{fp}  not found; run preprocessing first")
 
-    # Allow-list the Data object coming from torch_geometric
-    with ts.safe_globals([torch_geometric.data.Data]):
-        d = torch.load(fp, map_location="cpu", weights_only=False)
-
+    d = torch.load(fp, map_location="cpu", weights_only=False)
     return d["train"], d["val"], d["test"]
 
-# ---------------------------------------------------------------------------#
-#  Extreme-imbalance helpers
-# ---------------------------------------------------------------------------#
-def class_weights(data, boost=50.0):
-    y = data.y.cpu().numpy()
-    pos = y.sum(); neg = len(y) - pos
-    w_pos = len(y) / (2 * pos + 1e-6) * boost
-    w_neg = len(y) / (2 * neg + 1e-6)
-    print(f"⛔ imbalance  pos={pos:,}  neg={neg:,}  boost={boost}")
-    return torch.tensor([w_neg, w_pos], dtype=torch.float32, device=device)
 
-def focal_loss_fn(alpha=0.99, gamma=5.0):
+train_d, val_d, test_d = load_split("hi-small")   # default
+
+# ---------------------------------------------------------------------------#
+#  2. Extreme-imbalance helpers
+# ---------------------------------------------------------------------------#
+def make_loss(alpha=0.99, gamma=5.0):
     ce = nn.CrossEntropyLoss(reduction="none")
     def _loss(logits, tgt):
         ce_val = ce(logits, tgt)
         pt = torch.exp(-ce_val)
-        return (alpha * (1 - pt)**gamma * ce_val).mean()
+        return (alpha * (1 - pt) ** gamma * ce_val).mean()
     return _loss
 
-# ---------------------------------------------------------------------------#
-#  Balanced batch sampler
-# ---------------------------------------------------------------------------#
-def balanced_edge_indices(data, batch_sz=2000):
-    pos_idx = (data.y == 1).nonzero().squeeze()
-    neg_idx = (data.y == 0).nonzero().squeeze()
+
+def balanced_sampler(data, batch=2000):
+    pos = (data.y == 1).nonzero(as_tuple=False).squeeze()
+    neg = (data.y == 0).nonzero(as_tuple=False).squeeze()
     while True:
-        p = pos_idx[torch.randperm(len(pos_idx))[: batch_sz // 2]]
-        n = neg_idx[torch.randperm(len(neg_idx))[: batch_sz // 2]]
-        yield torch.cat([p, n])
+        i_pos = pos[torch.randperm(len(pos))[: batch // 2]]
+        i_neg = neg[torch.randperm(len(neg))[: batch // 2]]
+        yield torch.cat([i_pos, i_neg])
+
 
 # ---------------------------------------------------------------------------#
-#  Train one epoch
+#  3. Model definitions
 # ---------------------------------------------------------------------------#
-def train_epoch(model, data, loss_fn, opt, scaler, sampler):
-    model.train()
-    tot_loss = 0
-    for _ in range(max(1, data.num_edges // 4000)):  # ~900 steps/epoch
-        idx = next(sampler)
+node_dim  = train_d.x.size(1)
+edge_dim  = train_d.edge_attr.size(1)
+PARAMS = dict(node_feature_dim=node_dim, edge_feature_dim=edge_dim,
+              hidden_dim=256, dropout=0.2)
+
+models = {
+    "GCN": get_model("gcn", **PARAMS),
+    "GAT": get_model("gat", **PARAMS, num_heads=8),
+    "GIN": get_model("gin", **PARAMS, aggregation="sum"),
+}
+for n, m in models.items():
+    m.to(device)
+    print(f"{n}: {count_parameters(m):,} params")
+
+# ---------------------------------------------------------------------------#
+#  4. Training utilities
+# ---------------------------------------------------------------------------#
+def train_epoch(m, data, loss_fn, opt, scaler, sampler):
+    m.train(); tot = 0.
+    steps = max(1, data.num_edges // 4000)
+    for _ in range(steps):
+        idx = next(sampler).to(device)
         opt.zero_grad(set_to_none=True)
-        with torch.autocast(device_type="cuda", enabled=device.type == "cuda"):
-            out = model(data.x[idx], data.edge_index[:, idx], data.edge_attr[idx])
+        with torch.autocast(device_type="cuda", enabled=device.type=='cuda'):
+            out = m(data.x[idx], data.edge_index[:, idx], data.edge_attr[idx])
             loss = loss_fn(out, data.y[idx])
         scaler.scale(loss).backward()
         scaler.step(opt); scaler.update()
-        tot_loss += loss.item()
-    return tot_loss
+        tot += loss.item()
+    return tot / steps
 
-# ---------------------------------------------------------------------------#
-#  Validation metrics
-# ---------------------------------------------------------------------------#
-def eval_split(model, data, thresh=None):
-    model.eval(); idx = torch.arange(data.num_edges)
+
+def evaluate(m, data, thresh=0.5):
+    m.eval(); idx = torch.arange(data.num_edges, device=device)
     with torch.no_grad():
-        out = model(data.x[idx], data.edge_index[:, idx], data.edge_attr[idx])
-        prob = F.softmax(out, 1)[:, 1].cpu().numpy()
+        prob = F.softmax(
+            m(data.x[idx], data.edge_index[:, idx], data.edge_attr[idx]), 1
+        )[:, 1].cpu().numpy()
     y = data.y.cpu().numpy()
-    if thresh is None:
-        thresh = 0.5
     pred = (prob >= thresh).astype(int)
     return {
         "acc": accuracy_score(y, pred),
@@ -117,65 +125,48 @@ def eval_split(model, data, thresh=None):
         "ap": average_precision_score(y, prob),
     }, prob
 
-def find_threshold(probs, y):
-    ths = np.logspace(-4, -1, 100)
-    f1s = [f1_score(y, probs >= t) for t in ths]
-    return ths[int(np.argmax(f1s))]
+
+def best_threshold(p, y):
+    th = np.logspace(-4, -1, 100)
+    f1 = [f1_score(y, p >= t) for t in th]
+    return th[int(np.argmax(f1))]
+
 
 # ---------------------------------------------------------------------------#
-#  Model definitions
+#  5. Training loop
 # ---------------------------------------------------------------------------#
-node_dim = train_d.x.size(1); edge_dim = train_d.edge_attr.size(1)
-PARAMS = dict(node_feature_dim=node_dim, edge_feature_dim=edge_dim,
-              hidden_dim=256, dropout=0.2)
-
-models = {
-    "GCN": get_model("gcn", **PARAMS),
-    "GAT": get_model("gat", **PARAMS, num_heads=8),
-    "GIN": get_model("gin", **PARAMS, aggregation="sum"),
-}
-
-for n, m in models.items():
-    m.to(device)
-    print(f"{n}: {count_parameters(m):,} params")
-
-# ---------------------------------------------------------------------------#
-#  Train loop
-# ---------------------------------------------------------------------------#
-hist, bests = {}, {}
+hist, final = {}, {}
 for name, model in models.items():
-    print(f"\n=== TRAIN {name} ===")
-    loss_fn = focal_loss_fn()
+    print(f"\n===============  {name}  ===============")
+    loss_fn = make_loss()
     opt = torch.optim.Adam(model.parameters(), 3e-4, weight_decay=1e-4)
     scaler = torch.cuda.amp.GradScaler(enabled=device.type == "cuda")
-    sampler = balanced_edge_indices(train_d.to(device))
-    train_d = train_d.to(device); val_d = val_d.to(device)
+    sampler = balanced_sampler(train_d.to(device))
 
-    best_f1 = 0; patience = 5; bad = 0
+    best_f1, bad = 0., 0
     for epoch in range(25):
-        tl = train_epoch(model, train_d, loss_fn, opt, scaler, sampler)
-        val_metrics, val_prob = eval_split(model, val_d, thresh=0.5)
-        if val_metrics["f1"] > best_f1:
-            best_f1 = val_metrics["f1"]; bad = 0
-            best_state = model.state_dict()
-            best_thresh = find_threshold(val_prob, val_d.y.cpu().numpy())
+        tl = train_epoch(model, train_d.to(device), loss_fn, opt, scaler, sampler)
+        vm, pv = evaluate(model, val_d.to(device))
+        if vm["f1"] > best_f1:
+            best_f1, bad = vm["f1"], 0
+            best_w = model.state_dict()
+            best_th = best_threshold(pv, val_d.y.cpu().numpy())
         else:
             bad += 1
-        print(f"ep{epoch:02d}  loss={tl:.3f}  vf1={val_metrics['f1']:.4f}")
-        if bad >= patience:
-            break
-    model.load_state_dict(best_state)
-    hist[name] = best_f1; bests[name] = (model, best_thresh)
+        print(f"ep{epoch:02d}  loss={tl:.3f}  valf1={vm['f1']:.4f}")
+        if bad == 6: break
+
+    model.load_state_dict(best_w)
+    final[name] = (model, best_th)
 
 # ---------------------------------------------------------------------------#
-#  Final evaluation
+#  6. Test evaluation & saving
 # ---------------------------------------------------------------------------#
-print("\n=== FINAL TEST ===")
-for name, (model, th) in bests.items():
-    metrics, _ = eval_split(model, test_d.to(device), th)
-    print(f"{name:>4}  F1={metrics['f1']:.4f}  AUCPR={metrics['ap']:.4f}")
-    # save
-    fn = MODELS / f"{name.lower()}_{int(time.time())}.pt"
-    torch.save({"state": model.state_dict(), "thresh": th}, fn)
+print("\n===========  TEST  ===========")
+for n, (m, th) in final.items():
+    tm, _ = evaluate(m, test_d.to(device), th)
+    print(f"{n:>4}  F1={tm['f1']:.4f}  AUCPR={tm['ap']:.4f}")
+    fn = MODELS / f"{n.lower()}_{int(time.time())}.pt"
+    torch.save({"state": m.state_dict(), "thresh": th}, fn)
 
-print("✅ Complete")
+print("✅ Training complete")
