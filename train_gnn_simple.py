@@ -206,13 +206,15 @@ def train_model_with_memory_management(model, train_data, val_data, epochs=50, l
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5, factor=0.5)
     use_amp = str(device_obj).startswith('cuda') and torch.cuda.is_available()
-    scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
+    scaler = torch.amp.GradScaler('cuda', enabled=use_amp)
     
     # Training history
     history = {'train_loss': [], 'val_loss': [], 'val_f1': []}
     best_val_f1 = 0
     patience = 10
     no_improve = 0
+    # Ensure best_state is always defined
+    best_state = model.state_dict().copy()
     
     for epoch in range(epochs):
         # Training
@@ -226,7 +228,7 @@ def train_model_with_memory_management(model, train_data, val_data, epochs=50, l
         
         try:
             # Forward pass with debugging (AMP)
-            with torch.cuda.amp.autocast(enabled=use_amp):
+            with torch.amp.autocast('cuda', enabled=use_amp):
                 logits = model(train_data.x, train_data.edge_index, train_data.edge_attr)
                 if str(device_obj).startswith('cuda') and epoch == 0:
                     memory_after_forward = torch.cuda.memory_allocated() / 1024**3
@@ -262,7 +264,7 @@ def train_model_with_memory_management(model, train_data, val_data, epochs=50, l
                 train_data = train_data.cpu()
                 val_data = val_data.cpu()
                 use_amp = False
-                scaler = torch.cuda.amp.GradScaler(enabled=False)
+                scaler = torch.amp.GradScaler('cuda', enabled=False)
                 
                 # Retry forward pass on CPU
                 logits = model(train_data.x, train_data.edge_index, train_data.edge_attr)
@@ -278,7 +280,7 @@ def train_model_with_memory_management(model, train_data, val_data, epochs=50, l
         with torch.no_grad():
             # Move validation data to device temporarily
             val_data_device = val_data.to(device)
-            with torch.cuda.amp.autocast(enabled=use_amp):
+            with torch.amp.autocast('cuda', enabled=use_amp):
                 val_logits = model(val_data_device.x, val_data_device.edge_index, val_data_device.edge_attr)
                 val_loss = criterion(val_logits, val_data_device.y)
             val_preds = val_logits.argmax(dim=1)
