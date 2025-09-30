@@ -551,9 +551,13 @@ def main():
         print(f"\n{name} Model:")
         print("-" * 20)
         
-        train_metrics = evaluate_model(model, train_data, "Train", device)
-        val_metrics = evaluate_model(model, val_data, "Validation", device)
-        test_metrics = evaluate_model(model, test_data, "Test", device)
+        # Force evaluation on CPU to avoid device mismatches after CPU cleanup
+        eval_device = torch.device('cpu')
+        model_cpu = model.to(eval_device)
+        
+        train_metrics = evaluate_model(model_cpu, train_data, "Train", eval_device)
+        val_metrics = evaluate_model(model_cpu, val_data, "Validation", eval_device)
+        test_metrics = evaluate_model(model_cpu, test_data, "Test", eval_device)
         
         results[name] = test_metrics
     
