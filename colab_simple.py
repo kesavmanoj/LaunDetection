@@ -21,7 +21,10 @@ else:
 import sys
 sys.path.append('/content/drive/MyDrive/LaunDetection')
 
-# Import and run the training
+# Import and ensure latest code is loaded
+import importlib
+import train_gnn_simple
+importlib.reload(train_gnn_simple)
 from train_gnn_simple import main
 
 # Run training

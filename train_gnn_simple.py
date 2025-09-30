@@ -415,13 +415,20 @@ def main():
         num_heads = 4
         print(f"🔧 Standard graph size ({train_data.num_edges:,} edges), using full-size models")
     
+    # Further shrink GAT on very large graphs to avoid OOM
+    gat_hidden_dim = hidden_dim if train_data.num_edges <= 3000000 else 32
+    gat_heads = num_heads if train_data.num_edges <= 3000000 else 1
+    gat_layers = (2 if train_data.num_edges > 3000000 else 3)
+    if train_data.num_edges > 3000000:
+        gat_layers = 1
+
     models = {
         'GAT': EdgeFeatureGAT(
             node_feature_dim=node_features,
             edge_feature_dim=edge_features,
-            hidden_dim=hidden_dim,
-            num_heads=num_heads,
-            num_layers=2 if train_data.num_edges > 3000000 else 3,
+            hidden_dim=gat_hidden_dim,
+            num_heads=gat_heads,
+            num_layers=gat_layers,
             dropout=0.3,
             use_edge_features=True
         ),
@@ -460,8 +467,23 @@ def main():
         history = None
         try:
             # Train model
+            # Decide per-model device based on free GPU memory
+            training_device = 'cpu'
+            if torch.cuda.is_available():
+                try:
+                    free_bytes, total_bytes = torch.cuda.mem_get_info()
+                    free_gb = free_bytes / 1024**3
+                except Exception:
+                    free_gb = (torch.cuda.memory_reserved() - torch.cuda.memory_allocated()) / 1024**3
+                # Require at least 2.0 GB free for GAT on large graphs; 1.0 GB otherwise
+                min_needed_gb = 2.0 if (model_name == 'GAT' and train_data.num_edges > 3000000) else 1.0
+                if free_gb >= min_needed_gb:
+                    training_device = 'cuda'
+                else:
+                    print(f"⚠️ Low free GPU memory ({free_gb:.2f} GB). Training {model_name} on CPU.")
+
             trained_model, history = train_model_with_memory_management(
-                model, train_data, val_data, epochs=30, lr=0.001
+                model, train_data, val_data, epochs=30, lr=0.001, device=training_device
             )
 
             trained_models[model_name] = trained_model
