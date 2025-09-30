@@ -416,13 +416,6 @@ def main():
         print(f"🔧 Standard graph size ({train_data.num_edges:,} edges), using full-size models")
     
     models = {
-        'GCN': EdgeFeatureGCN(
-            node_feature_dim=node_features,
-            edge_feature_dim=edge_features,
-            hidden_dim=hidden_dim,
-            dropout=0.3,
-            use_edge_features=True
-        ),
         'GAT': EdgeFeatureGAT(
             node_feature_dim=node_features,
             edge_feature_dim=edge_features,
@@ -475,20 +468,34 @@ def main():
             histories.append(history)
             model_names.append(model_name)
 
-            # Save model BEFORE cleanup so the variable is still in scope
+            # Save model in a timestamped directory with richer metadata
+            run_id = time.strftime('%Y%m%d_%H%M%S')
+            model_dir = MODELS_DIR / f"{model_name.lower()}_{run_id}"
+            model_dir.mkdir(parents=True, exist_ok=True)
+            checkpoint_path = model_dir / 'checkpoint.pt'
             torch.save({
                 'model_state_dict': trained_model.state_dict(),
                 'model_class': trained_model.__class__.__name__,
-            }, MODELS_DIR / f'{model_name.lower()}_model.pt')
-            print(f" Saved {model_name} model checkpoint.")
+                'hyperparameters': {
+                    'node_feature_dim': node_features,
+                    'edge_feature_dim': edge_features,
+                    'hidden_dim': hidden_dim,
+                    'num_heads': num_heads if model_name == 'GAT' else None,
+                    'num_layers': (2 if train_data.num_edges > 3000000 else 3) if model_name == 'GAT' else None,
+                    'dropout': 0.3,
+                    'aggregation': 'sum' if model_name == 'GIN' else None,
+                    'lr': 0.001,
+                    'epochs': 30
+                },
+                'history': history,
+                'run_id': run_id
+            }, checkpoint_path)
+            print(f" Saved {model_name} checkpoint to {checkpoint_path}.")
         finally:
             # Move trained model to CPU and free GPU memory before starting next model
             try:
-                # Safely get local trained_model if it exists
-                try:
-                    tm = trained_model
-                except UnboundLocalError:
-                    tm = None
+                # Safely obtain local trained_model without referencing an unbound local name
+                tm = locals().get('trained_model', None)
                 if tm is not None:
                     trained_models[model_name] = tm.cpu()
             except Exception as e:
