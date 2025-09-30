@@ -14,20 +14,29 @@ def install_requirements():
     """
     print("Installing required packages...")
     
-    # Install PyTorch Geometric and related packages
+    # Install PyTorch Geometric and related packages with proper syntax
     torch_geometric_packages = [
-        "torch-scatter -f https://data.pyg.org/whl/torch-2.0.0+cu118.html",
-        "torch-sparse -f https://data.pyg.org/whl/torch-2.0.0+cu118.html",
-        "torch-cluster -f https://data.pyg.org/whl/torch-2.0.0+cu118.html",
-        "torch-spline-conv -f https://data.pyg.org/whl/torch-2.0.0+cu118.html"
+        ("torch-scatter", "https://data.pyg.org/whl/torch-2.0.0+cu118.html"),
+        ("torch-sparse", "https://data.pyg.org/whl/torch-2.0.0+cu118.html"),
+        ("torch-cluster", "https://data.pyg.org/whl/torch-2.0.0+cu118.html"),
+        ("torch-spline-conv", "https://data.pyg.org/whl/torch-2.0.0+cu118.html")
     ]
     
-    for package in torch_geometric_packages:
+    for package_name, url in torch_geometric_packages:
         try:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-            print(f"✓ Installed {package.split()[0]}")
+            subprocess.check_call([
+                sys.executable, "-m", "pip", "install", 
+                f"{package_name} -f {url}"
+            ])
+            print(f"✓ Installed {package_name}")
         except subprocess.CalledProcessError as e:
-            print(f"✗ Failed to install {package.split()[0]}: {e}")
+            print(f"✗ Failed to install {package_name}: {e}")
+            # Try alternative installation
+            try:
+                subprocess.check_call([sys.executable, "-m", "pip", "install", package_name])
+                print(f"✓ Installed {package_name} (alternative method)")
+            except subprocess.CalledProcessError:
+                print(f"✗ Failed to install {package_name} with alternative method")
     
     # Install other requirements
     requirements = [
@@ -82,6 +91,10 @@ def mount_google_drive():
     except ImportError:
         print("✗ Google Colab not detected. This script should be run in Colab.")
         return False
+    except Exception as e:
+        print(f"⚠️  Google Drive mounting failed: {e}")
+        print("This is normal if Drive is already mounted. Continuing...")
+        return True
 
 
 def create_project_directories():

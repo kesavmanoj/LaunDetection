@@ -69,16 +69,28 @@ def setup_project_paths():
         sys.path.insert(0, str(project_root))
         print(f"✓ Added {project_root} to Python path")
     
-    # Create data directory in Drive for persistence
-    drive_data_path = "/content/drive/MyDrive/AML_MultiGNN_Data"
-    os.makedirs(drive_data_path, exist_ok=True)
-    print(f"✓ Created data directory: {drive_data_path}")
+    # Use existing data directory in Drive
+    drive_data_path = "/content/drive/MyDrive/LaunDetection/data"
     
-    # Create symlink for easy access
-    local_data_path = "data"
-    if not os.path.exists(local_data_path):
-        os.symlink(drive_data_path, local_data_path)
-        print(f"✓ Created symlink: {local_data_path} -> {drive_data_path}")
+    # Check if data directory exists
+    if os.path.exists(drive_data_path):
+        print(f"✓ Found existing data directory: {drive_data_path}")
+        
+        # Create symlink for easy access
+        local_data_path = "data"
+        if not os.path.exists(local_data_path):
+            os.symlink(drive_data_path, local_data_path)
+            print(f"✓ Created symlink: {local_data_path} -> {drive_data_path}")
+        
+        # Create subdirectories if they don't exist
+        subdirs = ["processed", "splits"]
+        for subdir in subdirs:
+            subdir_path = os.path.join(drive_data_path, subdir)
+            os.makedirs(subdir_path, exist_ok=True)
+            print(f"✓ Created subdirectory: {subdir_path}")
+    else:
+        print(f"⚠️  Data directory not found: {drive_data_path}")
+        print("Please ensure your data is in /content/drive/MyDrive/LaunDetection/data/raw")
 
 
 def install_colab_packages():
@@ -119,13 +131,44 @@ def setup_kaggle_in_colab():
     print("5. Run: !chmod 600 ~/.kaggle/kaggle.json")
 
 
+def check_existing_data():
+    """
+    Check if data already exists in Google Drive
+    """
+    drive_data_path = "/content/drive/MyDrive/LaunDetection/data/raw"
+    
+    if os.path.exists(drive_data_path):
+        print(f"✓ Found existing data directory: {drive_data_path}")
+        
+        # List files in the directory
+        try:
+            files = os.listdir(drive_data_path)
+            print(f"✓ Found {len(files)} files in data directory:")
+            for file in files[:10]:  # Show first 10 files
+                print(f"  - {file}")
+            if len(files) > 10:
+                print(f"  ... and {len(files) - 10} more files")
+            return True
+        except Exception as e:
+            print(f"⚠️  Could not list files: {e}")
+            return False
+    else:
+        print(f"✗ Data directory not found: {drive_data_path}")
+        return False
+
+
 def download_dataset_in_colab(dataset_name: str = "ibm-aml-synthetic-dataset"):
     """
-    Download dataset in Colab environment
+    Download dataset in Colab environment (only if not already present)
     
     Args:
         dataset_name: Kaggle dataset name
     """
+    # Check if data already exists
+    if check_existing_data():
+        print("✓ Data already exists in Google Drive. Skipping download.")
+        return True
+    
     print(f"Downloading dataset: {dataset_name}")
     
     try:
