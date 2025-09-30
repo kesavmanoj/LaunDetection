@@ -33,3 +33,19 @@ trained_models, results = main()
 
 print("\n🎉 Training completed successfully!")
 print("Check the models directory for saved models and plots.")
+
+# List the most recent timestamped checkpoint directories for convenience
+from pathlib import Path
+MODELS_DIR = Path('/content/drive/MyDrive/LaunDetection/models')
+if MODELS_DIR.exists():
+    ckpts = sorted([p for p in MODELS_DIR.iterdir() if p.is_dir()], key=lambda p: p.stat().st_mtime, reverse=True)
+    to_show = [p for p in ckpts if any(tag in p.name.lower() for tag in ['gat_', 'gin_'])][:4]
+    if to_show:
+        print("\nSaved checkpoints:")
+        for p in to_show:
+            ckpt_file = p / 'checkpoint.pt'
+            print(f" - {p.name}: {ckpt_file}")
+    else:
+        print("No GAT/GIN checkpoints found yet in models directory.")
+else:
+    print("Models directory not found at /content/drive/MyDrive/LaunDetection/models")
