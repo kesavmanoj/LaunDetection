@@ -10,6 +10,7 @@ Updated 2025-09-30
 
 from pathlib import Path
 import os, time
+import torch.serialization as ts
 import numpy as np
 import torch, torch.nn as nn, torch.nn.functional as F
 from sklearn.metrics import (
@@ -33,13 +34,20 @@ if device.type == "cuda":
 #  Data loading (assumes fixed preprocessing script already run)
 # ---------------------------------------------------------------------------#
 def load_split(name: str):
+    """
+    Load the previously-saved split file produced by preprocessing.
+    It contains full torch_geometric Data objects, so we must disable
+    the new ‘weights-only’ safeguard in PyTorch ≥2.6.
+    """
     fp = GRAPHS / f"ibm_aml_{name}_fixed_splits.pt"
     if not fp.exists():
         raise FileNotFoundError(f"{fp} not found; run preprocessing first")
-    d = torch.load(fp, map_location="cpu")
-    return d["train"], d["val"], d["test"]
 
-train_d, val_d, test_d = load_split("hi-small")  # use HI-Small by default
+    # Allow-list the Data object coming from torch_geometric
+    with ts.safe_globals([torch_geometric.data.Data]):
+        d = torch.load(fp, map_location="cpu", weights_only=False)
+
+    return d["train"], d["val"], d["test"]
 
 # ---------------------------------------------------------------------------#
 #  Extreme-imbalance helpers
