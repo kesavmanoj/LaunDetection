@@ -36,15 +36,22 @@ def setup_colab_environment():
     
     print("✅ Environment setup complete")
 
-def mount_google_drive():
-    """Mount Google Drive"""
+def check_google_drive():
+    """Check if Google Drive is already mounted"""
     try:
+        # Check if drive is already mounted
+        if os.path.exists('/content/drive/MyDrive'):
+            print("✅ Google Drive is already mounted")
+            return True
+        
+        # Try to mount if not mounted
         from google.colab import drive
         drive.mount('/content/drive')
         print("✅ Google Drive mounted successfully")
         return True
     except Exception as e:
-        print(f"❌ Failed to mount Google Drive: {e}")
+        print(f"❌ Failed to access Google Drive: {e}")
+        print("Please ensure Google Drive is mounted manually")
         return False
 
 def run_robust_training():
@@ -70,8 +77,8 @@ def main():
     # Setup environment
     setup_colab_environment()
     
-    # Mount Google Drive
-    if not mount_google_drive():
+    # Check Google Drive access
+    if not check_google_drive():
         print("❌ Cannot proceed without Google Drive access")
         return
     
