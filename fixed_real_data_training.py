@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Real Data Only Training for AML Multi-GNN
-=========================================
+Fixed Real Data Only Training for AML Multi-GNN
+===============================================
 
 This script uses ONLY real data from the IBM AML dataset.
-No synthetic data, no fallback strategies - only real data.
+Fixed the tensor creation error by using proper node mapping.
 """
 
 import torch
@@ -81,10 +81,10 @@ def load_real_data_only(data_path):
 
     return transactions, accounts
 
-# Real data only graph creation
-def create_graph_real_data_only(transactions, accounts):
-    """Create graph using ONLY real data - no synthetic data"""
-    print("Creating graph using ONLY real data...")
+# Fixed graph creation function
+def create_graph_fixed(transactions, accounts):
+    """Create graph using ONLY real data with proper node mapping"""
+    print("Creating graph using ONLY real data with proper node mapping...")
     
     print("Transaction columns:", transactions.columns.tolist())
     print("Account columns:", accounts.columns.tolist())
@@ -108,53 +108,10 @@ def create_graph_real_data_only(transactions, accounts):
     if len(overlap) == 0:
         print("❌ NO OVERLAP FOUND between transaction and account data!")
         print("This means the account numbers in transactions don't match account data.")
-        print("We need to find a different linking strategy.")
-        
-        # Try to find a different linking strategy
-        print("\n🔍 Looking for alternative linking strategies...")
-        
-        # Check if there's a pattern in the account numbers
-        print("Transaction account patterns:")
-        for acc in list(trans_accounts)[:10]:
-            print(f"  {acc} (length: {len(str(acc))})")
-        
-        print("Account data patterns:")
-        for acc in list(account_numbers)[:10]:
-            print(f"  {acc} (length: {len(str(acc))})")
-        
-        # Check if there's a substring match or transformation
-        print("\n🔍 Checking for substring matches...")
-        substring_matches = 0
-        for trans_acc in list(trans_accounts)[:100]:  # Check first 100
-            for acc_num in list(account_numbers)[:100]:
-                if str(trans_acc) in str(acc_num) or str(acc_num) in str(trans_acc):
-                    substring_matches += 1
-                    print(f"  Found substring match: {trans_acc} <-> {acc_num}")
-                    break
-        
-        print(f"Substring matches found: {substring_matches}")
-        
-        if substring_matches == 0:
-            print("❌ NO LINKING STRATEGY FOUND!")
-            print("The transaction and account data are completely incompatible.")
-            print("We cannot create a graph without a linking strategy.")
-            return None
+        return None
     
-    # If we have overlap, proceed with real data
-    if len(overlap) > 0:
-        print(f"✅ Found {len(overlap)} overlapping account numbers!")
-        return create_graph_with_overlap(transactions, accounts, overlap)
-    
-    # If we have substring matches, try to use them
-    if substring_matches > 0:
-        print(f"✅ Found {substring_matches} substring matches!")
-        return create_graph_with_substring_matches(transactions, accounts)
-    
-    return None
-
-def create_graph_with_overlap(transactions, accounts, overlap):
-    """Create graph using overlapping account numbers"""
-    print("Creating graph with overlapping account numbers...")
+    print(f"✅ Found {len(overlap)} overlapping account numbers!")
+    print(f"Overlapping accounts: {list(overlap)}")
     
     # Create account features using only overlapping accounts
     account_features = {}
@@ -173,6 +130,11 @@ def create_graph_with_overlap(transactions, accounts, overlap):
     
     print(f"Created {len(account_features)} account features from overlapping accounts")
     
+    # Create node mapping (string account ID -> integer node ID)
+    unique_accounts = list(overlap)
+    node_mapping = {account_id: i for i, account_id in enumerate(unique_accounts)}
+    print(f"Created node mapping for {len(node_mapping)} accounts")
+    
     # Process transactions
     edges = []
     edge_features = []
@@ -187,7 +149,7 @@ def create_graph_with_overlap(transactions, accounts, overlap):
         to_account = transaction['Account.1']
         
         # Only process if both accounts are in our overlapping set
-        if from_account in account_features and to_account in account_features:
+        if from_account in node_mapping and to_account in node_mapping:
             amount = float(transaction['Amount Paid']) if pd.notna(transaction['Amount Paid']) else 1000.0
             
             try:
@@ -200,7 +162,11 @@ def create_graph_with_overlap(transactions, accounts, overlap):
             
             is_sar = int(transaction['Is Laundering'])
             
-            edges.append([from_account, to_account])
+            # Use integer node IDs instead of string account IDs
+            from_node = node_mapping[from_account]
+            to_node = node_mapping[to_account]
+            
+            edges.append([from_node, to_node])
             edge_features.append([amount, hour, day, month])
             labels.append(is_sar)
             matched_edges += 1
@@ -211,134 +177,31 @@ def create_graph_with_overlap(transactions, accounts, overlap):
         print("❌ ERROR: No edges created even with overlapping accounts!")
         return None
     
-    # Create node features
-    unique_accounts = list(set([edge[0] for edge in edges] + [edge[1] for edge in edges]))
+    # Create node features using the same order as node_mapping
     node_features = []
     node_labels = []
     
     for account_id in unique_accounts:
         if account_id in account_features:
             node_features.append(account_features[account_id])
-            account_sar = any(labels[i] for i, edge in enumerate(edges) if edge[0] == account_id)
+            # Node label: 1 if any transaction from this account is SAR
+            account_sar = any(labels[i] for i, edge in enumerate(edges) if edge[0] == node_mapping[account_id])
             node_labels.append(1 if account_sar else 0)
         else:
             node_features.append([0, 0, 0, 0, 0])
             node_labels.append(0)
     
-    # Convert to tensors
+    # Convert to tensors - now using integer node IDs
     node_features = torch.tensor(node_features, dtype=torch.float32)
     edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
     edge_attr = torch.tensor(edge_features, dtype=torch.float32)
     labels = torch.tensor(node_labels, dtype=torch.long)
     
     print(f"✅ Created graph with {len(unique_accounts)} nodes and {len(edges)} edges")
-    
-    if len(node_labels) > 0:
-        sar_rate = sum(node_labels) / len(node_labels)
-        print(f"SAR rate: {sar_rate:.3f}")
-    
-    return Data(x=node_features, edge_index=edge_index, edge_attr=edge_attr, y=labels)
-
-def create_graph_with_substring_matches(transactions, accounts):
-    """Create graph using substring matches between account numbers"""
-    print("Creating graph with substring matches...")
-    
-    # Find all substring matches
-    trans_accounts = set(transactions['Account'].unique()) | set(transactions['Account.1'].unique())
-    account_numbers = set(accounts['Account Number'].unique())
-    
-    matches = {}
-    for trans_acc in trans_accounts:
-        for acc_num in account_numbers:
-            if str(trans_acc) in str(acc_num) or str(acc_num) in str(trans_acc):
-                matches[trans_acc] = acc_num
-                break
-    
-    print(f"Found {len(matches)} substring matches")
-    
-    if len(matches) == 0:
-        print("❌ ERROR: No substring matches found!")
-        return None
-    
-    # Create account features using matched accounts
-    account_features = {}
-    
-    for _, account in accounts.iterrows():
-        account_id = account['Account Number']
-        if account_id in matches.values():
-            account_features[account_id] = [
-                5000.0,  # balance (default)
-                0.5,     # risk_score (default)
-                1,       # checking (default)
-                0,       # savings (default)
-                0        # business (default)
-            ]
-    
-    print(f"Created {len(account_features)} account features from matched accounts")
-    
-    # Process transactions
-    edges = []
-    edge_features = []
-    labels = []
-    
-    matched_edges = 0
-    for i, (_, transaction) in enumerate(transactions.iterrows()):
-        if i % 1000 == 0:
-            print(f"Processing transaction {i}/{len(transactions)}")
-        
-        from_account = transaction['Account']
-        to_account = transaction['Account.1']
-        
-        # Check if we have matches for both accounts
-        if from_account in matches and to_account in matches:
-            from_matched = matches[from_account]
-            to_matched = matches[to_account]
-            
-            if from_matched in account_features and to_matched in account_features:
-                amount = float(transaction['Amount Paid']) if pd.notna(transaction['Amount Paid']) else 1000.0
-                
-                try:
-                    timestamp = pd.to_datetime(transaction['Timestamp'])
-                    hour = timestamp.hour
-                    day = timestamp.day
-                    month = timestamp.month
-                except:
-                    hour, day, month = 12, 1, 1
-                
-                is_sar = int(transaction['Is Laundering'])
-                
-                edges.append([from_matched, to_matched])
-                edge_features.append([amount, hour, day, month])
-                labels.append(is_sar)
-                matched_edges += 1
-    
-    print(f"✅ Matched {matched_edges} edges out of {len(transactions)} transactions")
-    
-    if matched_edges == 0:
-        print("❌ ERROR: No edges created even with substring matches!")
-        return None
-    
-    # Create node features
-    unique_accounts = list(set([edge[0] for edge in edges] + [edge[1] for edge in edges]))
-    node_features = []
-    node_labels = []
-    
-    for account_id in unique_accounts:
-        if account_id in account_features:
-            node_features.append(account_features[account_id])
-            account_sar = any(labels[i] for i, edge in enumerate(edges) if edge[0] == account_id)
-            node_labels.append(1 if account_sar else 0)
-        else:
-            node_features.append([0, 0, 0, 0, 0])
-            node_labels.append(0)
-    
-    # Convert to tensors
-    node_features = torch.tensor(node_features, dtype=torch.float32)
-    edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
-    edge_attr = torch.tensor(edge_features, dtype=torch.float32)
-    labels = torch.tensor(node_labels, dtype=torch.long)
-    
-    print(f"✅ Created graph with {len(unique_accounts)} nodes and {len(edges)} edges")
+    print(f"Node features shape: {node_features.shape}")
+    print(f"Edge index shape: {edge_index.shape}")
+    print(f"Edge attributes shape: {edge_attr.shape}")
+    print(f"Labels shape: {labels.shape}")
     
     if len(node_labels) > 0:
         sar_rate = sum(node_labels) / len(node_labels)
@@ -400,7 +263,7 @@ def train_model(model, train_loader, val_loader, epochs=5, lr=0.001):
 # Main execution
 if __name__ == "__main__":
     print("=" * 60)
-    print("AML Multi-GNN - Real Data Only Training")
+    print("AML Multi-GNN - Fixed Real Data Only Training")
     print("=" * 60)
     
     # Set random seeds
@@ -412,7 +275,7 @@ if __name__ == "__main__":
     transactions, accounts = load_real_data_only(data_path)
     
     # Create graph
-    graph = create_graph_real_data_only(transactions, accounts)
+    graph = create_graph_fixed(transactions, accounts)
     
     if graph is None:
         print("❌ Graph creation failed!")
@@ -424,7 +287,7 @@ if __name__ == "__main__":
     
     # Create individual graphs for training
     individual_graphs = []
-    for i in range(min(50, graph.num_nodes)):  # Limit for memory
+    for i in range(min(20, graph.num_nodes)):  # Limit for memory
         center_node = i
         neighbor_nodes = [center_node]
         
@@ -454,6 +317,11 @@ if __name__ == "__main__":
     
     print(f"✅ Created {len(individual_graphs)} individual graphs")
     
+    if len(individual_graphs) == 0:
+        print("❌ No individual graphs created!")
+        print("The graph structure is too sparse for training.")
+        exit(1)
+    
     # Split data
     train_size = int(0.8 * len(individual_graphs))
     train_graphs = individual_graphs[:train_size]
@@ -462,8 +330,8 @@ if __name__ == "__main__":
     print(f"Split: {len(train_graphs)} train graphs, {len(val_graphs)} val graphs")
     
     # Create data loaders
-    train_loader = DataLoader(train_graphs, batch_size=4, shuffle=True)
-    val_loader = DataLoader(val_graphs, batch_size=4, shuffle=False)
+    train_loader = DataLoader(train_graphs, batch_size=2, shuffle=True)
+    val_loader = DataLoader(val_graphs, batch_size=2, shuffle=False)
     
     # Create model
     model = SimpleGNN(
@@ -483,5 +351,5 @@ if __name__ == "__main__":
     print(f"Best validation F1: {best_f1:.4f}")
     
     print("\n" + "=" * 60)
-    print("Real data only training completed successfully!")
+    print("Fixed real data only training completed successfully!")
     print("=" * 60)
