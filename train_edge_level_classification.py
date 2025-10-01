@@ -46,16 +46,11 @@ class EdgeLevelGNN(nn.Module):
             self.bns.append(nn.BatchNorm1d(hidden_dim))
             self.dropouts.append(nn.Dropout(dropout))
         
-        # Edge classification head
-        self.edge_classifier = nn.Sequential(
-            nn.Linear(hidden_dim * 2, hidden_dim),  # Concatenated node features
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, hidden_dim // 2),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim // 2, output_dim)
-        )
+        # Edge classification head - will be created dynamically
+        self.edge_classifier = None
+        self.hidden_dim = hidden_dim
+        self.output_dim = output_dim
+        self.dropout = dropout
         
     def forward(self, x, edge_index, edge_attr=None):
         # Check for NaN in input
@@ -86,6 +81,19 @@ class EdgeLevelGNN(nn.Module):
             if torch.isnan(edge_attr).any():
                 edge_attr = torch.nan_to_num(edge_attr, nan=0.0)
             edge_features = torch.cat([edge_features, edge_attr], dim=1)
+        
+        # Create edge classifier dynamically if not exists
+        if self.edge_classifier is None:
+            input_dim = edge_features.shape[1]
+            self.edge_classifier = nn.Sequential(
+                nn.Linear(input_dim, self.hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(self.dropout),
+                nn.Linear(self.hidden_dim, self.hidden_dim // 2),
+                nn.ReLU(),
+                nn.Dropout(self.dropout),
+                nn.Linear(self.hidden_dim // 2, self.output_dim)
+            ).to(edge_features.device)
         
         # Classify edges
         edge_output = self.edge_classifier(edge_features)
