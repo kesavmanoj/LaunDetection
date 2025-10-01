@@ -209,17 +209,17 @@ def create_balanced_graph(transactions):
             is_aml = transaction['Is Laundering']
             
             if from_acc in G.nodes and to_acc in G.nodes:
-                # Create edge features
+                # Create edge features (ensure all numeric)
                 edge_features = [
-                    amount,
-                    is_aml,
-                    transaction.get('Payment Format', 1),
-                    transaction.get('Receiving Currency', 1),
-                    transaction.get('Payment Currency', 1),
-                    transaction.get('Timestamp', 1),
+                    float(amount),
+                    int(is_aml),
+                    1.0,  # Payment Format (encoded)
+                    1.0,  # Receiving Currency (encoded)
+                    1.0,  # Payment Currency (encoded)
+                    1.0,  # Timestamp (encoded)
                     0.5,  # Risk score
-                    1,    # Frequency
-                    1,    # Pattern
+                    1.0,  # Frequency
+                    1.0,  # Pattern
                     0.1,  # Anomaly score
                     0.5,  # Channel
                     0.5   # Location
@@ -296,7 +296,19 @@ def create_balanced_training_data(graph_data, num_samples=5000):
             edge_labels.append(data.get('label', 0))
     
     edge_index = torch.tensor(edge_index_list, dtype=torch.long).t().contiguous()
-    edge_attr = torch.tensor(edge_attr_list, dtype=torch.float32)
+    
+    # Ensure all edge attributes are numeric
+    edge_attr_list_clean = []
+    for edge_attr in edge_attr_list:
+        clean_attr = []
+        for val in edge_attr:
+            try:
+                clean_attr.append(float(val))
+            except (ValueError, TypeError):
+                clean_attr.append(0.0)  # Default value for non-numeric
+        edge_attr_list_clean.append(clean_attr)
+    
+    edge_attr = torch.tensor(edge_attr_list_clean, dtype=torch.float32)
     y = torch.tensor(edge_labels, dtype=torch.long)
     
     # Create PyTorch Geometric Data object
@@ -346,7 +358,19 @@ def create_balanced_training_data(graph_data, num_samples=5000):
                 
                 if len(subgraph_edge_index) > 0:
                     subgraph_edge_index = torch.tensor(subgraph_edge_index, dtype=torch.long).t().contiguous()
-                    subgraph_edge_attr = torch.tensor(subgraph_edge_attr, dtype=torch.float32)
+                    
+                    # Ensure all subgraph edge attributes are numeric
+                    subgraph_edge_attr_clean = []
+                    for edge_attr in subgraph_edge_attr:
+                        clean_attr = []
+                        for val in edge_attr:
+                            try:
+                                clean_attr.append(float(val))
+                            except (ValueError, TypeError):
+                                clean_attr.append(0.0)  # Default value for non-numeric
+                        subgraph_edge_attr_clean.append(clean_attr)
+                    
+                    subgraph_edge_attr = torch.tensor(subgraph_edge_attr_clean, dtype=torch.float32)
                     subgraph_y = torch.tensor(subgraph_labels, dtype=torch.long)
                     
                     # Create graph-level label (majority vote)
