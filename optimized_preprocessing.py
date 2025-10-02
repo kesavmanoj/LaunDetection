@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
-Conservative Multi-Dataset Preprocessing
-=======================================
+Optimized Multi-Dataset Preprocessing
+====================================
 
-This script processes datasets one at a time with very conservative memory limits
-to prevent RAM crashes in Google Colab.
+This script uses the full 12GB Colab RAM efficiently for maximum data processing.
 """
 
 import pandas as pd
@@ -23,29 +22,29 @@ from imblearn.under_sampling import RandomUnderSampler
 import warnings
 warnings.filterwarnings('ignore')
 
-print("🚀 Conservative Multi-Dataset Preprocessing")
+print("🚀 Optimized Multi-Dataset Preprocessing")
 print("=" * 50)
-print("📊 Very conservative memory limits to prevent crashes")
-print("📊 Processing datasets one at a time")
+print("📊 Using full 12GB Colab RAM for maximum data processing")
+print("📊 Much higher transaction limits for better training")
 print()
 
-class ConservativePreprocessor:
-    """Conservative preprocessor with very small memory limits"""
+class OptimizedPreprocessor:
+    """Optimized preprocessor using full Colab RAM"""
     
     def __init__(self, data_path="/content/drive/MyDrive/LaunDetection/data/raw"):
         self.data_path = data_path
         self.processed_data = {}
         
-    def load_dataset_conservative(self, trans_file, accounts_file, dataset_name, max_transactions=1000000):
-        """Load dataset with very conservative memory limits"""
-        print(f"   📁 Loading {dataset_name} dataset (limited to {max_transactions:,} transactions)...")
+    def load_dataset_optimized(self, trans_file, accounts_file, dataset_name, max_transactions=20000000):
+        """Load dataset with optimized memory usage"""
+        print(f"   📁 Loading {dataset_name} dataset (up to {max_transactions:,} transactions)...")
         
         # Load accounts
         accounts = pd.read_csv(accounts_file)
         print(f"   ✅ Accounts loaded: {len(accounts):,}")
         
-        # Load transactions with very small chunks
-        chunk_size = 50000  # Smaller chunks
+        # Load transactions with optimized chunks
+        chunk_size = 100000  # Larger chunks for efficiency
         transaction_chunks = []
         total_loaded = 0
         
@@ -56,14 +55,15 @@ class ConservativePreprocessor:
                 transaction_chunks.append(chunk)
                 total_loaded += len(chunk)
                 
-                # Progress update every 2 chunks
-                if len(transaction_chunks) % 2 == 0:
+                # Progress update every 5 chunks
+                if len(transaction_chunks) % 5 == 0:
                     print(f"   📊 Loaded {total_loaded:,} transactions so far...")
                 
-                # Aggressive garbage collection every chunk
-                gc.collect()
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
+                # Memory management every 10 chunks
+                if len(transaction_chunks) % 10 == 0:
+                    gc.collect()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
                 
                 # Stop if we hit the limit
                 if total_loaded > max_transactions:
@@ -234,12 +234,12 @@ class ConservativePreprocessor:
         return G
     
     def process_single_dataset(self, dataset_name, trans_file, accounts_file, max_transactions):
-        """Process a single dataset with conservative limits"""
+        """Process a single dataset with optimized limits"""
         print(f"\n🔄 Processing {dataset_name} dataset...")
-        print(f"   🚀 Using {dataset_name} dataset (limited to {max_transactions:,} transactions)")
+        print(f"   🚀 Using {dataset_name} dataset (up to {max_transactions:,} transactions)")
         
         # Load dataset
-        transactions, accounts = self.load_dataset_conservative(trans_file, accounts_file, dataset_name, max_transactions)
+        transactions, accounts = self.load_dataset_optimized(trans_file, accounts_file, dataset_name, max_transactions)
         
         if transactions is None or accounts is None:
             print(f"   ❌ Failed to load {dataset_name}")
@@ -253,8 +253,8 @@ class ConservativePreprocessor:
         print(f"      AML: {len(aml_transactions):,} ({len(aml_transactions)/len(transactions)*100:.4f}%)")
         print(f"      Non-AML: {len(non_aml_transactions):,} ({len(non_aml_transactions)/len(transactions)*100:.4f}%)")
         
-        # Create balanced subset
-        target_aml_rate = 0.1  # 10% AML rate
+        # Create balanced subset with higher AML rate for better training
+        target_aml_rate = 0.15  # 15% AML rate for better training
         max_aml_samples = len(aml_transactions)
         max_non_aml_samples = int(max_aml_samples * (1 - target_aml_rate) / target_aml_rate)
         
@@ -320,16 +320,16 @@ class ConservativePreprocessor:
         
         return processed_data
     
-    def run_conservative_preprocessing(self):
-        """Run conservative preprocessing on all datasets"""
-        print("🚀 Starting Conservative Multi-Dataset Preprocessing...")
+    def run_optimized_preprocessing(self):
+        """Run optimized preprocessing on all datasets"""
+        print("🚀 Starting Optimized Multi-Dataset Preprocessing...")
         
         # Optimized memory limits to utilize full 12GB Colab RAM
         memory_limits = {
             'HI-Small': 5000000,     # 5M transactions (full dataset)
             'LI-Small': 7000000,     # 7M transactions (full dataset)
-            'HI-Medium': 15000000,   # 15M transactions (half of 32M)
-            'LI-Medium': 15000000    # 15M transactions (half of 32M)
+            'HI-Medium': 20000000,   # 20M transactions (2/3 of 32M)
+            'LI-Medium': 20000000    # 20M transactions (2/3 of 32M)
         }
         
         dataset_files = {
@@ -348,7 +348,7 @@ class ConservativePreprocessor:
             if os.path.exists(trans_file) and os.path.exists(accounts_file):
                 print(f"   ✅ Found {dataset_name} dataset")
                 
-                max_transactions = memory_limits.get(dataset_name, 1000000)
+                max_transactions = memory_limits.get(dataset_name, 10000000)
                 processed_data = self.process_single_dataset(
                     dataset_name, trans_file, accounts_file, max_transactions
                 )
@@ -361,22 +361,22 @@ class ConservativePreprocessor:
             else:
                 print(f"   ❌ {dataset_name} files not found")
         
-        print(f"\n✅ Conservative preprocessing completed!")
+        print(f"\n✅ Optimized preprocessing completed!")
         print(f"📊 Processed {len(self.processed_data)} datasets")
         
         return self.processed_data
 
 def main():
-    """Run conservative preprocessing"""
-    preprocessor = ConservativePreprocessor()
-    processed_data = preprocessor.run_conservative_preprocessing()
+    """Run optimized preprocessing"""
+    preprocessor = OptimizedPreprocessor()
+    processed_data = preprocessor.run_optimized_preprocessing()
     
     if processed_data:
-        print("\n🎉 Conservative preprocessing successful!")
-        print("📊 All datasets processed with conservative memory limits")
-        print("🚀 Ready for training!")
+        print("\n🎉 Optimized preprocessing successful!")
+        print("📊 All datasets processed with optimized memory limits")
+        print("🚀 Ready for training with much more data!")
     else:
-        print("\n❌ Conservative preprocessing failed!")
+        print("\n❌ Optimized preprocessing failed!")
 
 if __name__ == "__main__":
     main()

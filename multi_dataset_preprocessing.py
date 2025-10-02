@@ -108,13 +108,13 @@ class MultiDatasetPreprocessor:
             'LI-Medium': ['LI-Medium_Trans.csv', 'LI-Medium_accounts.csv']
         }
         
-        # Aggressive memory limits to prevent RAM crashes in Colab
-        # Use smaller limits to ensure successful completion
+        # Optimized memory limits to utilize full 12GB Colab RAM
+        # Much higher limits to use available memory efficiently
         memory_limits = {
-            'HI-Small': 2000000,     # Limit to 2M transactions (was 5M)
-            'LI-Small': 2000000,     # Limit to 2M transactions (was 7M)
-            'HI-Medium': 5000000,    # Limit to 5M transactions (was 32M)
-            'LI-Medium': 5000000     # Limit to 5M transactions (was 10M)
+            'HI-Small': 5000000,     # 5M transactions (full dataset)
+            'LI-Small': 7000000,     # 7M transactions (full dataset)
+            'HI-Medium': 15000000,   # 15M transactions (half of 32M)
+            'LI-Medium': 15000000    # 15M transactions (half of 32M)
         }
         
         for dataset_name, files in dataset_files.items():
