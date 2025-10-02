@@ -42,10 +42,16 @@ def setup_environment():
     
     print("✅ Environment setup complete")
 
-def mount_google_drive():
-    """Mount Google Drive"""
-    print("📁 Mounting Google Drive...")
+def check_google_drive():
+    """Check if Google Drive is already mounted"""
+    print("📁 Checking Google Drive access...")
     
+    # Check if drive is already mounted
+    if os.path.exists('/content/drive/MyDrive'):
+        print("✅ Google Drive already mounted")
+        return True
+    
+    # Try to mount if not already mounted
     try:
         from google.colab import drive
         drive.mount('/content/drive')
@@ -53,6 +59,7 @@ def mount_google_drive():
         return True
     except Exception as e:
         print(f"❌ Failed to mount Google Drive: {str(e)}")
+        print("💡 Please manually mount Google Drive if needed")
         return False
 
 def check_data_availability():
@@ -152,8 +159,8 @@ def main():
     # Step 1: Setup environment
     setup_environment()
     
-    # Step 2: Mount Google Drive
-    if not mount_google_drive():
+    # Step 2: Check Google Drive access
+    if not check_google_drive():
         print("❌ Cannot proceed without Google Drive access")
         return
     
