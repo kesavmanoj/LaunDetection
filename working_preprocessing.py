@@ -24,8 +24,8 @@ def main():
     print("=" * 60)
     print("📊 HI-Small: Full dataset (5M transactions)")
     print("📊 LI-Small: Full dataset (7M transactions)")
-    print("📊 HI-Medium: Full dataset (32M transactions)")
-    print("📊 LI-Medium: Limited to 5M transactions")
+    print("📊 HI-Medium: Limited to 15M transactions")
+    print("📊 LI-Medium: Limited to 15M transactions")
     print("📊 Large datasets: Skipped")
     print()
     
@@ -37,7 +37,7 @@ def main():
         preprocessor.run_full_preprocessing()
         print("\n✅ Working preprocessing completed successfully!")
         print("📊 Small and medium datasets processed")
-        print("📊 LI-Medium limited to 5M transactions")
+        print("📊 Medium datasets limited to 15M transactions each")
         print("📊 Large datasets skipped")
         print("🚀 Ready for training!")
     except Exception as e:

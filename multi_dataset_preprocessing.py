@@ -115,8 +115,8 @@ class MultiDatasetPreprocessor:
         memory_limits = {
             'HI-Small': 999999999,   # Process ENTIRE dataset (5M transactions)
             'LI-Small': 999999999,   # Process ENTIRE dataset (7M transactions)
-            'HI-Medium': 999999999,  # Process ENTIRE dataset (32M transactions)
-            'LI-Medium': 5000000,    # Limit to 5M transactions only
+            'HI-Medium': 15000000,   # Limit to 15M transactions only
+            'LI-Medium': 15000000,   # Limit to 15M transactions only
             'HI-Large': 0,           # Skip large datasets
             'LI-Large': 0            # Skip large datasets
         }

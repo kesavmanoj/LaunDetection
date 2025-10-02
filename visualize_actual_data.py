@@ -65,9 +65,18 @@ def analyze_dataset(dataset_name, data):
             aml_edges = metadata['aml_edges']
         elif 'aml_count' in metadata:
             aml_edges = metadata['aml_count']
+        elif 'aml_rate' in metadata:
+            # Calculate AML edges from rate
+            aml_rate = metadata['aml_rate'] * 100  # Convert to percentage
+            aml_edges = int(edges * metadata['aml_rate'])
+        else:
+            print(f"   Available metadata keys: {list(metadata.keys())}")
     
     if aml_edges > 0:
         aml_rate = (aml_edges / edges) * 100
+    elif 'aml_rate' in metadata:
+        aml_rate = metadata['aml_rate'] * 100
+        aml_edges = int(edges * metadata['aml_rate'])
     
     print(f"📊 {dataset_name}:")
     print(f"   Nodes: {nodes:,}")
