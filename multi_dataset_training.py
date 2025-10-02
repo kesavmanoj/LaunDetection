@@ -263,7 +263,12 @@ class MultiDatasetTrainer:
                 features = [float(f) if not (np.isnan(f) or np.isinf(f)) else 0.0 for f in features]
                 x_list.append(features)
             else:
-                x_list.append([0.0] * 25)  # Default features
+                # Use actual feature dimension from existing features
+                if x_list:
+                    default_features = [0.0] * len(x_list[0])
+                else:
+                    default_features = [0.0] * 25  # Fallback to 25
+                x_list.append(default_features)
         
         x = torch.tensor(x_list, dtype=torch.float32).to(self.device)
         
@@ -302,9 +307,13 @@ class MultiDatasetTrainer:
         """Train model on multi-dataset"""
         print("🚀 Starting Multi-Dataset Training...")
         
-        # Create model
+        # Create model with correct input dimension
+        # Check actual input dimension from data
+        actual_input_dim = data.x.shape[1]
+        print(f"   📊 Actual input dimension: {actual_input_dim}")
+        
         self.model = MultiDatasetEdgeLevelGNN(
-            input_dim=25,  # Enhanced node features
+            input_dim=actual_input_dim,  # Use actual input dimension
             hidden_dim=128,
             output_dim=2,
             dropout=0.4

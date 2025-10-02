@@ -91,12 +91,12 @@ class MultiDatasetPreprocessor:
             'LI-Medium': ['LI-Medium_Trans.csv', 'LI-Medium_accounts.csv']
         }
         
-        # Memory limits for different dataset sizes
+        # Memory limits for different dataset sizes - INCREASED for full dataset usage
         memory_limits = {
-            'HI-Small': 500000,   # 500K transactions max
-            'LI-Small': 300000,   # 300K transactions max
-            'HI-Medium': 200000,  # 200K transactions max (reduced for memory)
-            'LI-Medium': 200000   # 200K transactions max (reduced for memory)
+            'HI-Small': 2000000,  # 2M transactions max (use more of the dataset)
+            'LI-Small': 1000000,  # 1M transactions max
+            'HI-Medium': 1000000, # 1M transactions max (increased for full usage)
+            'LI-Medium': 1000000  # 1M transactions max (increased for full usage)
         }
         
         for dataset_name, files in dataset_files.items():
@@ -179,23 +179,23 @@ class MultiDatasetPreprocessor:
             if len(to_trans) > 0:
                 is_aml_involved = max(is_aml_involved, to_trans['Is Laundering'].max())
             
-            # Advanced features
+            # Advanced features - EXACTLY 25 features to match model expectations
             features = [
-                # Basic amounts (log-transformed)
+                # Basic amounts (log-transformed) - 4 features
                 np.log1p(total_amount),
                 np.log1p(total_amount_sent),
                 np.log1p(total_amount_received),
                 np.log1p(avg_amount),
                 
-                # Transaction counts
+                # Transaction counts - 3 features
                 float(transaction_count),
                 float(len(from_trans)),
                 float(len(to_trans)),
                 
-                # AML involvement
+                # AML involvement - 1 feature
                 float(is_aml_involved),
                 
-                # Amount statistics
+                # Amount statistics - 6 features
                 from_trans['Amount Received'].std() if len(from_trans) > 1 else 0,
                 to_trans['Amount Received'].std() if len(to_trans) > 1 else 0,
                 from_trans['Amount Received'].max() if len(from_trans) > 0 else 0,
@@ -203,16 +203,16 @@ class MultiDatasetPreprocessor:
                 from_trans['Amount Received'].min() if len(from_trans) > 0 else 0,
                 to_trans['Amount Received'].min() if len(to_trans) > 0 else 0,
                 
-                # Network features
+                # Network features - 2 features
                 len(set(from_trans['To Bank'].astype(str))) if len(from_trans) > 0 else 0,
                 len(set(to_trans['From Bank'].astype(str))) if len(to_trans) > 0 else 0,
                 
-                # Risk indicators
+                # Risk indicators - 2 features
                 float(from_trans['Is Laundering'].sum()) if len(from_trans) > 0 else 0,
                 float(to_trans['Is Laundering'].sum()) if len(to_trans) > 0 else 0,
                 
-                # Temporal features (if available)
-                0.5, 0.5, 0.5, 0.5, 0.5  # Placeholder for temporal features
+                # Additional features to reach exactly 25 - 7 features
+                0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5  # Placeholder for additional features
             ]
             
             # Clean features (handle NaN/Inf)
@@ -304,12 +304,12 @@ class MultiDatasetPreprocessor:
         """Preprocess a single dataset with enhanced features and memory management"""
         print(f"\n🔄 Preprocessing {dataset_name} dataset...")
         
-        # Memory management: Limit dataset size for medium datasets
+        # Memory management: Use more of the dataset for better training
         if 'Medium' in dataset_name:
-            print(f"   ⚠️ Medium dataset detected - applying memory limits...")
-            if len(transactions) > 200000:
-                print(f"   📊 Sampling {len(transactions):,} transactions to 200,000 for memory management...")
-                transactions = transactions.sample(n=200000, random_state=42).reset_index(drop=True)
+            print(f"   ⚠️ Medium dataset detected - using larger sample for better training...")
+            if len(transactions) > 1000000:  # Increased limit
+                print(f"   📊 Sampling {len(transactions):,} transactions to 1,000,000 for better training...")
+                transactions = transactions.sample(n=1000000, random_state=42).reset_index(drop=True)
                 print(f"   ✅ Sampled to {len(transactions):,} transactions")
         
         # Create balanced dataset
