@@ -35,9 +35,53 @@ class MultiDatasetPreprocessor:
         self.processed_data = {}
         self.scalers = {}
         
+    def load_dataset_chunked(self, trans_file, accounts_file, dataset_name, max_transactions=500000):
+        """Load dataset with memory management for large files"""
+        print(f"   📁 Loading {dataset_name} with memory management...")
+        
+        # Load accounts (usually small)
+        accounts = pd.read_csv(accounts_file)
+        print(f"   ✅ Accounts loaded: {len(accounts):,}")
+        
+        # Load transactions in chunks to manage memory
+        chunk_size = 50000  # Process 50K transactions at a time
+        transaction_chunks = []
+        
+        print(f"   🔄 Loading transactions in chunks of {chunk_size:,}...")
+        
+        try:
+            for chunk in pd.read_csv(trans_file, chunksize=chunk_size):
+                transaction_chunks.append(chunk)
+                
+                # Memory management
+                if len(transaction_chunks) * chunk_size > max_transactions:
+                    print(f"   ⚠️ Reached memory limit, stopping at {len(transaction_chunks) * chunk_size:,} transactions")
+                    break
+                
+                # Force garbage collection
+                gc.collect()
+                
+        except Exception as e:
+            print(f"   ⚠️ Error loading chunks: {str(e)}")
+            return None, None
+        
+        # Combine chunks
+        if transaction_chunks:
+            transactions = pd.concat(transaction_chunks, ignore_index=True)
+            print(f"   ✅ Transactions loaded: {len(transactions):,}")
+        else:
+            print(f"   ❌ No transaction chunks loaded")
+            return None, None
+        
+        # Memory cleanup
+        del transaction_chunks
+        gc.collect()
+        
+        return transactions, accounts
+    
     def load_all_datasets(self):
-        """Load all available AML datasets"""
-        print("📊 Loading all available AML datasets...")
+        """Load all available AML datasets with memory management"""
+        print("📊 Loading all available AML datasets with memory management...")
         
         # Define dataset files to look for
         dataset_files = {
@@ -45,6 +89,14 @@ class MultiDatasetPreprocessor:
             'LI-Small': ['LI-Small_Trans.csv', 'LI-Small_accounts.csv'],
             'HI-Medium': ['HI-Medium_Trans.csv', 'HI-Medium_accounts.csv'],
             'LI-Medium': ['LI-Medium_Trans.csv', 'LI-Medium_accounts.csv']
+        }
+        
+        # Memory limits for different dataset sizes
+        memory_limits = {
+            'HI-Small': 500000,   # 500K transactions max
+            'LI-Small': 300000,   # 300K transactions max
+            'HI-Medium': 200000,  # 200K transactions max (reduced for memory)
+            'LI-Medium': 200000   # 200K transactions max (reduced for memory)
         }
         
         for dataset_name, files in dataset_files.items():
@@ -56,28 +108,33 @@ class MultiDatasetPreprocessor:
             if os.path.exists(trans_file) and os.path.exists(accounts_file):
                 print(f"   ✅ Found {dataset_name} dataset")
                 
-                # Load transactions
-                print(f"   📁 Loading {dataset_name} transactions...")
-                transactions = pd.read_csv(trans_file)
+                # Load with memory management
+                max_transactions = memory_limits.get(dataset_name, 200000)
+                transactions, accounts = self.load_dataset_chunked(
+                    trans_file, accounts_file, dataset_name, max_transactions
+                )
                 
-                # Load accounts
-                print(f"   📁 Loading {dataset_name} accounts...")
-                accounts = pd.read_csv(accounts_file)
-                
-                self.datasets[dataset_name] = {
-                    'transactions': transactions,
-                    'accounts': accounts
-                }
-                
-                print(f"   📊 {dataset_name} loaded: {len(transactions):,} transactions, {len(accounts):,} accounts")
-                
-                # Analyze AML distribution
-                if 'Is Laundering' in transactions.columns:
-                    aml_count = transactions['Is Laundering'].sum()
-                    aml_rate = (aml_count / len(transactions)) * 100
-                    print(f"   🚨 AML transactions: {aml_count:,} ({aml_rate:.4f}%)")
+                if transactions is not None and accounts is not None:
+                    self.datasets[dataset_name] = {
+                        'transactions': transactions,
+                        'accounts': accounts
+                    }
+                    
+                    print(f"   📊 {dataset_name} loaded: {len(transactions):,} transactions, {len(accounts):,} accounts")
+                    
+                    # Analyze AML distribution
+                    if 'Is Laundering' in transactions.columns:
+                        aml_count = transactions['Is Laundering'].sum()
+                        aml_rate = (aml_count / len(transactions)) * 100
+                        print(f"   🚨 AML transactions: {aml_count:,} ({aml_rate:.4f}%)")
+                    else:
+                        print(f"   ⚠️ No 'Is Laundering' column found in {dataset_name}")
+                    
+                    # Memory cleanup
+                    del transactions, accounts
+                    gc.collect()
                 else:
-                    print(f"   ⚠️ No 'Is Laundering' column found in {dataset_name}")
+                    print(f"   ❌ Failed to load {dataset_name} dataset")
                     
             else:
                 print(f"   ❌ {dataset_name} dataset not found")
@@ -244,15 +301,31 @@ class MultiDatasetPreprocessor:
         return balanced_transactions
     
     def preprocess_dataset(self, dataset_name, transactions, accounts):
-        """Preprocess a single dataset with enhanced features"""
+        """Preprocess a single dataset with enhanced features and memory management"""
         print(f"\n🔄 Preprocessing {dataset_name} dataset...")
+        
+        # Memory management: Limit dataset size for medium datasets
+        if 'Medium' in dataset_name:
+            print(f"   ⚠️ Medium dataset detected - applying memory limits...")
+            if len(transactions) > 200000:
+                print(f"   📊 Sampling {len(transactions):,} transactions to 200,000 for memory management...")
+                transactions = transactions.sample(n=200000, random_state=42).reset_index(drop=True)
+                print(f"   ✅ Sampled to {len(transactions):,} transactions")
         
         # Create balanced dataset
         balanced_transactions = self.create_balanced_dataset(transactions, target_aml_rate=0.1)
         
+        # Memory cleanup
+        del transactions
+        gc.collect()
+        
         # Create enhanced features
         node_features = self.create_enhanced_node_features(balanced_transactions, accounts, dataset_name)
         edge_features, edge_labels = self.create_enhanced_edge_features(balanced_transactions, dataset_name)
+        
+        # Memory cleanup
+        del accounts
+        gc.collect()
         
         # Create NetworkX graph
         print(f"   🕸️ Creating {dataset_name} graph...")
@@ -286,6 +359,10 @@ class MultiDatasetPreprocessor:
             'aml_edges': sum(edge_labels),
             'non_aml_edges': len(edge_labels) - sum(edge_labels)
         }
+        
+        # Memory cleanup
+        del balanced_transactions, node_features, edge_features, edge_labels
+        gc.collect()
         
         return self.processed_data[dataset_name]
     
