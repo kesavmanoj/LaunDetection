@@ -91,19 +91,20 @@ class MemoryEfficientPreprocessor:
             combined_node_features[account] = features
             combined_graph.add_node(account, features=features)
         
-        # Second pass: process transactions in batches
+        # Second pass: process transactions in smaller batches
         print(f"   🔄 Processing transactions in batches...")
         batch_count = 0
         total_processed = 0
         batch_transactions = []
+        max_chunks_per_batch = 50  # Process 50 chunks (5M transactions) at a time
         
         for chunk in pd.read_csv(trans_file, chunksize=100000):
             batch_transactions.append(chunk)
             total_processed += len(chunk)
             
-            # Process batch when it reaches batch_size
-            if total_processed >= batch_size or len(batch_transactions) >= 100:
-                print(f"   📊 Processing batch {batch_count + 1} ({total_processed:,} transactions)...")
+            # Process batch when it reaches max_chunks_per_batch
+            if len(batch_transactions) >= max_chunks_per_batch:
+                print(f"   📊 Processing batch {batch_count + 1} ({len(batch_transactions)} chunks, {total_processed:,} transactions)...")
                 
                 # Combine batch
                 batch_df = pd.concat(batch_transactions, ignore_index=True)
@@ -115,15 +116,16 @@ class MemoryEfficientPreprocessor:
                 combined_edge_features.extend(batch_edge_features)
                 combined_edge_labels.extend(batch_edge_labels)
                 
-                # Add edges to graph
-                for i, (_, row) in enumerate(batch_df.iterrows()):
-                    from_bank = row.get('From Bank')
-                    to_bank = row.get('To Bank')
-                    
-                    if from_bank and to_bank and from_bank in combined_graph.nodes and to_bank in combined_graph.nodes:
-                        combined_graph.add_edge(from_bank, to_bank, 
-                                              features=batch_edge_features[i],
-                                              label=batch_edge_labels[i])
+                # Add edges to graph (only if not too many)
+                if len(batch_edge_features) < 100000:  # Only add if manageable size
+                    for i, (_, row) in enumerate(batch_df.iterrows()):
+                        from_bank = row.get('From Bank')
+                        to_bank = row.get('To Bank')
+                        
+                        if from_bank and to_bank and from_bank in combined_graph.nodes and to_bank in combined_graph.nodes:
+                            combined_graph.add_edge(from_bank, to_bank, 
+                                                  features=batch_edge_features[i],
+                                                  label=batch_edge_labels[i])
                 
                 # Save checkpoint every batch
                 self.save_checkpoint(dataset_name, batch_count, {
@@ -155,14 +157,16 @@ class MemoryEfficientPreprocessor:
             combined_edge_features.extend(batch_edge_features)
             combined_edge_labels.extend(batch_edge_labels)
             
-            for i, (_, row) in enumerate(batch_df.iterrows()):
-                from_bank = row.get('From Bank')
-                to_bank = row.get('To Bank')
-                
-                if from_bank and to_bank and from_bank in combined_graph.nodes and to_bank in combined_graph.nodes:
-                    combined_graph.add_edge(from_bank, to_bank, 
-                                          features=batch_edge_features[i],
-                                          label=batch_edge_labels[i])
+            # Add edges to graph (only if not too many)
+            if len(batch_edge_features) < 100000:
+                for i, (_, row) in enumerate(batch_df.iterrows()):
+                    from_bank = row.get('From Bank')
+                    to_bank = row.get('To Bank')
+                    
+                    if from_bank and to_bank and from_bank in combined_graph.nodes and to_bank in combined_graph.nodes:
+                        combined_graph.add_edge(from_bank, to_bank, 
+                                              features=batch_edge_features[i],
+                                              label=batch_edge_labels[i])
         
         print(f"   ✅ {dataset_name} processing complete: {len(combined_edge_features):,} edges")
         
