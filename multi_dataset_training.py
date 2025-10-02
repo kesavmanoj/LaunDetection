@@ -159,7 +159,7 @@ class MultiDatasetTrainer:
         print("📊 Loading processed multi-datasets...")
         
         datasets = {}
-        available_datasets = ['HI-Small', 'LI-Small', 'HI-Medium', 'LI-Medium']
+        available_datasets = ['HI-Small', 'LI-Small', 'HI-Medium', 'LI-Medium', 'HI-Large', 'LI-Large']
         
         for dataset_name in available_datasets:
             graph_path = os.path.join(processed_dir, f"{dataset_name}_graph.pkl")

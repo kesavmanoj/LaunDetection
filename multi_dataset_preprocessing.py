@@ -100,21 +100,25 @@ class MultiDatasetPreprocessor:
         """Load all available AML datasets with memory management"""
         print("📊 Loading all available AML datasets with memory management...")
         
-        # Define dataset files to look for
+        # Define dataset files to look for (including Large datasets)
         dataset_files = {
             'HI-Small': ['HI-Small_Trans.csv', 'HI-Small_accounts.csv'],
             'LI-Small': ['LI-Small_Trans.csv', 'LI-Small_accounts.csv'],
             'HI-Medium': ['HI-Medium_Trans.csv', 'HI-Medium_accounts.csv'],
-            'LI-Medium': ['LI-Medium_Trans.csv', 'LI-Medium_accounts.csv']
+            'LI-Medium': ['LI-Medium_Trans.csv', 'LI-Medium_accounts.csv'],
+            'HI-Large': ['HI-Large_Trans.csv', 'HI-Large_accounts.csv'],
+            'LI-Large': ['LI-Large_Trans.csv', 'LI-Large_accounts.csv']
         }
         
-        # Optimized memory limits to utilize full 12GB Colab RAM
-        # Much higher limits to use available memory efficiently
+        # Memory limits optimized for 11GB Colab RAM
+        # Large datasets limited to 5M transactions to prevent crashes
         memory_limits = {
             'HI-Small': 5000000,     # 5M transactions (full dataset)
             'LI-Small': 7000000,     # 7M transactions (full dataset)
             'HI-Medium': 15000000,   # 15M transactions (half of 32M)
-            'LI-Medium': 15000000    # 15M transactions (half of 32M)
+            'LI-Medium': 15000000,   # 15M transactions (half of 32M)
+            'HI-Large': 5000000,     # 5M transactions (limited for RAM safety)
+            'LI-Large': 5000000      # 5M transactions (limited for RAM safety)
         }
         
         for dataset_name, files in dataset_files.items():
