@@ -37,7 +37,10 @@ class MultiDatasetPreprocessor:
         
     def load_dataset_chunked(self, trans_file, accounts_file, dataset_name, max_transactions=999999999):
         """Load ENTIRE dataset with chunked processing for memory management"""
-        print(f"   📁 Loading ENTIRE {dataset_name} dataset with chunked processing...")
+        if max_transactions < 999999999:
+            print(f"   📁 Loading {dataset_name} dataset with chunked processing (limited to {max_transactions:,} transactions)...")
+        else:
+            print(f"   📁 Loading ENTIRE {dataset_name} dataset with chunked processing...")
         
         # Load accounts (usually small)
         accounts = pd.read_csv(accounts_file)
@@ -63,9 +66,12 @@ class MultiDatasetPreprocessor:
                 if len(transaction_chunks) % 5 == 0:
                     gc.collect()
                 
-                # Only stop if we hit the theoretical limit (which we won't)
+                # Stop if we hit the memory limit
                 if total_loaded > max_transactions:
-                    print(f"   ⚠️ Reached theoretical limit, stopping at {total_loaded:,} transactions")
+                    if max_transactions < 999999999:
+                        print(f"   ⚠️ Reached memory limit, stopping at {total_loaded:,} transactions (limit: {max_transactions:,})")
+                    else:
+                        print(f"   ⚠️ Reached theoretical limit, stopping at {total_loaded:,} transactions")
                     break
                 
         except Exception as e:
@@ -99,13 +105,13 @@ class MultiDatasetPreprocessor:
             'LI-Medium': ['LI-Medium_Trans.csv', 'LI-Medium_accounts.csv']
         }
         
-        # NO MEMORY LIMITS - Process ENTIRE datasets in chunks
-        # We'll process ALL available data, no artificial limits
+        # Memory limits to prevent RAM crashes
+        # Process ENTIRE datasets but with reasonable limits for large datasets
         memory_limits = {
-            'HI-Small': 999999999,   # Process ENTIRE dataset
-            'LI-Small': 999999999,   # Process ENTIRE dataset  
-            'HI-Medium': 999999999,  # Process ENTIRE dataset
-            'LI-Medium': 999999999   # Process ENTIRE dataset
+            'HI-Small': 999999999,   # Process ENTIRE dataset (5M transactions)
+            'LI-Small': 999999999,   # Process ENTIRE dataset (7M transactions)
+            'HI-Medium': 999999999,  # Process ENTIRE dataset (32M transactions)
+            'LI-Medium': 10000000    # Limit to 10M transactions to prevent RAM crash
         }
         
         for dataset_name, files in dataset_files.items():
