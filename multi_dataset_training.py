@@ -303,7 +303,7 @@ class MultiDatasetTrainer:
         
         return data
     
-    def train_multi_dataset_model(self, data, epochs=200, learning_rate=0.001):
+    def train_multi_dataset_model(self, data, epochs=500, learning_rate=0.0005):
         """Train model on multi-dataset"""
         print("🚀 Starting Multi-Dataset Training...")
         
@@ -325,10 +325,13 @@ class MultiDatasetTrainer:
         optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate, weight_decay=1e-4)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=20)
         
-        # Enhanced class weights for better AML detection
+        # Enhanced class weights for better AML detection - MORE AGGRESSIVE
         class_counts = torch.bincount(data.y)
         class_weights = len(data.y) / (len(class_counts) * class_counts.float())
         class_weights = class_weights / class_weights.sum() * len(class_counts)
+        
+        # Boost AML class weight even more for better detection
+        class_weights[1] = class_weights[1] * 5.0  # 5x boost for AML class
         
         criterion = nn.CrossEntropyLoss(weight=class_weights)
         
@@ -336,7 +339,7 @@ class MultiDatasetTrainer:
         print(f"   🎯 Training for {epochs} epochs...")
         
         best_f1 = 0.0
-        patience = 30
+        patience = 50  # Increased patience for longer training
         patience_counter = 0
         
         for epoch in range(epochs):
@@ -361,8 +364,8 @@ class MultiDatasetTrainer:
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
             optimizer.step()
             
-            # Validation every 10 epochs
-            if epoch % 10 == 0:
+            # Validation every 5 epochs for more frequent monitoring
+            if epoch % 5 == 0:
                 self.model.eval()
                 with torch.no_grad():
                     out = self.model(data.x, data.edge_index, data.edge_attr)

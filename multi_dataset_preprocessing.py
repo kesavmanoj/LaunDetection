@@ -91,12 +91,13 @@ class MultiDatasetPreprocessor:
             'LI-Medium': ['LI-Medium_Trans.csv', 'LI-Medium_accounts.csv']
         }
         
-        # Memory limits for different dataset sizes - INCREASED for full dataset usage
+        # Memory limits for different dataset sizes - MAXIMIZED for full dataset usage
+        # Medium datasets have MORE transactions than Small datasets
         memory_limits = {
-            'HI-Small': 2000000,  # 2M transactions max (use more of the dataset)
-            'LI-Small': 1000000,  # 1M transactions max
-            'HI-Medium': 1000000, # 1M transactions max (increased for full usage)
-            'LI-Medium': 1000000  # 1M transactions max (increased for full usage)
+            'HI-Small': 10000000,  # 10M transactions max (use MUCH more of the dataset)
+            'LI-Small': 5000000,   # 5M transactions max
+            'HI-Medium': 20000000, # 20M transactions max (MEDIUM = MORE data than Small)
+            'LI-Medium': 20000000  # 20M transactions max (MEDIUM = MORE data than Small)
         }
         
         for dataset_name, files in dataset_files.items():
@@ -304,12 +305,13 @@ class MultiDatasetPreprocessor:
         """Preprocess a single dataset with enhanced features and memory management"""
         print(f"\n🔄 Preprocessing {dataset_name} dataset...")
         
-        # Memory management: Use more of the dataset for better training
+        # Memory management: Use MUCH more of the dataset for better training
+        # Medium datasets have MORE transactions than Small datasets
         if 'Medium' in dataset_name:
-            print(f"   ⚠️ Medium dataset detected - using larger sample for better training...")
-            if len(transactions) > 1000000:  # Increased limit
-                print(f"   📊 Sampling {len(transactions):,} transactions to 1,000,000 for better training...")
-                transactions = transactions.sample(n=1000000, random_state=42).reset_index(drop=True)
+            print(f"   ⚠️ Medium dataset detected - using MAXIMUM sample (MEDIUM = MORE data)...")
+            if len(transactions) > 20000000:  # Much higher limit for Medium datasets
+                print(f"   📊 Sampling {len(transactions):,} transactions to 20,000,000 for MAXIMUM training...")
+                transactions = transactions.sample(n=20000000, random_state=42).reset_index(drop=True)
                 print(f"   ✅ Sampled to {len(transactions):,} transactions")
         
         # Create balanced dataset
