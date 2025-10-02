@@ -58,13 +58,16 @@ class MultiDatasetPreprocessor:
                 transaction_chunks.append(chunk)
                 total_loaded += len(chunk)
                 
-                # Progress update every 10 chunks
-                if len(transaction_chunks) % 10 == 0:
+                # Progress update every 5 chunks for better monitoring
+                if len(transaction_chunks) % 5 == 0:
                     print(f"   📊 Loaded {total_loaded:,} transactions so far...")
                 
-                # Force garbage collection every 5 chunks
-                if len(transaction_chunks) % 5 == 0:
+                # Aggressive garbage collection every 3 chunks
+                if len(transaction_chunks) % 3 == 0:
                     gc.collect()
+                    import torch
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
                 
                 # Stop if we hit the memory limit
                 if total_loaded > max_transactions:
@@ -105,13 +108,13 @@ class MultiDatasetPreprocessor:
             'LI-Medium': ['LI-Medium_Trans.csv', 'LI-Medium_accounts.csv']
         }
         
-        # Memory limits to prevent RAM crashes
-        # Process ENTIRE datasets but with reasonable limits for large datasets
+        # Aggressive memory limits to prevent RAM crashes in Colab
+        # Use smaller limits to ensure successful completion
         memory_limits = {
-            'HI-Small': 999999999,   # Process ENTIRE dataset (5M transactions)
-            'LI-Small': 999999999,   # Process ENTIRE dataset (7M transactions)
-            'HI-Medium': 999999999,  # Process ENTIRE dataset (32M transactions)
-            'LI-Medium': 10000000    # Limit to 10M transactions to prevent RAM crash
+            'HI-Small': 2000000,     # Limit to 2M transactions (was 5M)
+            'LI-Small': 2000000,     # Limit to 2M transactions (was 7M)
+            'HI-Medium': 5000000,    # Limit to 5M transactions (was 32M)
+            'LI-Medium': 5000000     # Limit to 5M transactions (was 10M)
         }
         
         for dataset_name, files in dataset_files.items():
