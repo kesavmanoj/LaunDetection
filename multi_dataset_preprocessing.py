@@ -35,31 +35,38 @@ class MultiDatasetPreprocessor:
         self.processed_data = {}
         self.scalers = {}
         
-    def load_dataset_chunked(self, trans_file, accounts_file, dataset_name, max_transactions=500000):
-        """Load dataset with memory management for large files"""
-        print(f"   📁 Loading {dataset_name} with memory management...")
+    def load_dataset_chunked(self, trans_file, accounts_file, dataset_name, max_transactions=999999999):
+        """Load ENTIRE dataset with chunked processing for memory management"""
+        print(f"   📁 Loading ENTIRE {dataset_name} dataset with chunked processing...")
         
         # Load accounts (usually small)
         accounts = pd.read_csv(accounts_file)
         print(f"   ✅ Accounts loaded: {len(accounts):,}")
         
-        # Load transactions in chunks to manage memory
-        chunk_size = 50000  # Process 50K transactions at a time
+        # Load transactions in chunks to manage memory - NO LIMITS
+        chunk_size = 100000  # Process 100K transactions at a time for better efficiency
         transaction_chunks = []
+        total_loaded = 0
         
-        print(f"   🔄 Loading transactions in chunks of {chunk_size:,}...")
+        print(f"   🔄 Loading ENTIRE dataset in chunks of {chunk_size:,}...")
         
         try:
             for chunk in pd.read_csv(trans_file, chunksize=chunk_size):
                 transaction_chunks.append(chunk)
+                total_loaded += len(chunk)
                 
-                # Memory management
-                if len(transaction_chunks) * chunk_size > max_transactions:
-                    print(f"   ⚠️ Reached memory limit, stopping at {len(transaction_chunks) * chunk_size:,} transactions")
+                # Progress update every 10 chunks
+                if len(transaction_chunks) % 10 == 0:
+                    print(f"   📊 Loaded {total_loaded:,} transactions so far...")
+                
+                # Force garbage collection every 5 chunks
+                if len(transaction_chunks) % 5 == 0:
+                    gc.collect()
+                
+                # Only stop if we hit the theoretical limit (which we won't)
+                if total_loaded > max_transactions:
+                    print(f"   ⚠️ Reached theoretical limit, stopping at {total_loaded:,} transactions")
                     break
-                
-                # Force garbage collection
-                gc.collect()
                 
         except Exception as e:
             print(f"   ⚠️ Error loading chunks: {str(e)}")
@@ -67,8 +74,9 @@ class MultiDatasetPreprocessor:
         
         # Combine chunks
         if transaction_chunks:
+            print(f"   🔄 Combining {len(transaction_chunks)} chunks...")
             transactions = pd.concat(transaction_chunks, ignore_index=True)
-            print(f"   ✅ Transactions loaded: {len(transactions):,}")
+            print(f"   ✅ ENTIRE dataset loaded: {len(transactions):,} transactions")
         else:
             print(f"   ❌ No transaction chunks loaded")
             return None, None
@@ -91,13 +99,13 @@ class MultiDatasetPreprocessor:
             'LI-Medium': ['LI-Medium_Trans.csv', 'LI-Medium_accounts.csv']
         }
         
-        # Memory limits for different dataset sizes - MAXIMIZED for full dataset usage
-        # Medium datasets have MORE transactions than Small datasets
+        # NO MEMORY LIMITS - Process ENTIRE datasets in chunks
+        # We'll process ALL available data, no artificial limits
         memory_limits = {
-            'HI-Small': 10000000,  # 10M transactions max (use MUCH more of the dataset)
-            'LI-Small': 5000000,   # 5M transactions max
-            'HI-Medium': 20000000, # 20M transactions max (MEDIUM = MORE data than Small)
-            'LI-Medium': 20000000  # 20M transactions max (MEDIUM = MORE data than Small)
+            'HI-Small': 999999999,   # Process ENTIRE dataset
+            'LI-Small': 999999999,   # Process ENTIRE dataset  
+            'HI-Medium': 999999999,  # Process ENTIRE dataset
+            'LI-Medium': 999999999   # Process ENTIRE dataset
         }
         
         for dataset_name, files in dataset_files.items():
@@ -273,7 +281,7 @@ class MultiDatasetPreprocessor:
         return edge_features, edge_labels
     
     def create_balanced_dataset(self, transactions, target_aml_rate=0.1):
-        """Create a balanced dataset with target AML rate"""
+        """Create a balanced dataset with target AML rate - ENHANCED for full datasets"""
         print(f"   🔄 Creating balanced dataset with {target_aml_rate*100:.1f}% AML rate...")
         
         aml_transactions = transactions[transactions['Is Laundering'] == 1]
@@ -282,6 +290,12 @@ class MultiDatasetPreprocessor:
         print(f"   📊 Original distribution:")
         print(f"      AML: {len(aml_transactions):,} ({len(aml_transactions)/len(transactions)*100:.4f}%)")
         print(f"      Non-AML: {len(non_aml_transactions):,} ({len(non_aml_transactions)/len(transactions)*100:.4f}%)")
+        
+        # For large datasets, use more aggressive balancing to get more AML samples
+        if len(aml_transactions) > 10000:
+            # Use higher AML rate for large datasets to get more training data
+            target_aml_rate = 0.15  # 15% AML rate for large datasets
+            print(f"   🚀 Large dataset detected - using {target_aml_rate*100:.1f}% AML rate for better training!")
         
         # Calculate target non-AML count
         target_non_aml_count = int(len(aml_transactions) * (1 - target_aml_rate) / target_aml_rate)
@@ -305,14 +319,9 @@ class MultiDatasetPreprocessor:
         """Preprocess a single dataset with enhanced features and memory management"""
         print(f"\n🔄 Preprocessing {dataset_name} dataset...")
         
-        # Memory management: Use MUCH more of the dataset for better training
-        # Medium datasets have MORE transactions than Small datasets
-        if 'Medium' in dataset_name:
-            print(f"   ⚠️ Medium dataset detected - using MAXIMUM sample (MEDIUM = MORE data)...")
-            if len(transactions) > 20000000:  # Much higher limit for Medium datasets
-                print(f"   📊 Sampling {len(transactions):,} transactions to 20,000,000 for MAXIMUM training...")
-                transactions = transactions.sample(n=20000000, random_state=42).reset_index(drop=True)
-                print(f"   ✅ Sampled to {len(transactions):,} transactions")
+        # NO SAMPLING - Use ENTIRE dataset for maximum training performance
+        print(f"   🚀 Using ENTIRE {dataset_name} dataset: {len(transactions):,} transactions")
+        print(f"   📊 This will provide maximum training data for better AML detection!")
         
         # Create balanced dataset
         balanced_transactions = self.create_balanced_dataset(transactions, target_aml_rate=0.1)
