@@ -20,10 +20,31 @@ def quick_visualize():
     # Check for processed data
     processed_path = "/content/drive/MyDrive/LaunDetection/data/processed"
     
-    if not os.path.exists(processed_path):
+    # Also check alternative paths
+    alt_paths = [
+        "/content/drive/MyDrive/LaunDetection/data/processed",
+        "/content/drive/MyDrive/LaunDetection/data/processed/",
+        "/content/LaunDetection/data/processed",
+        "/content/LaunDetection/data/processed/"
+    ]
+    
+    # Find the correct processed path
+    found_path = None
+    for path in alt_paths:
+        if os.path.exists(path):
+            found_path = path
+            break
+    
+    if not found_path:
         print("❌ No processed data found!")
-        print("💡 Run: python working_preprocessing.py")
+        print("💡 Checked paths:")
+        for path in alt_paths:
+            print(f"   - {path}")
+        print("💡 Run preprocessing first: python working_preprocessing.py")
         return
+    
+    processed_path = found_path
+    print(f"✅ Found processed data at: {processed_path}")
     
     # Find processed files
     datasets = []
