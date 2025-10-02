@@ -25,6 +25,8 @@ from sklearn.metrics import (
     confusion_matrix, classification_report, roc_curve, roc_auc_score,
     precision_recall_curve, average_precision_score
 )
+from tqdm import tqdm
+import time
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -267,7 +269,8 @@ def comprehensive_model_evaluation(model, transactions, device):
     
     # Create node features EXACTLY as in training (15 features)
     x_list = []
-    for acc in account_list:
+    print("   🔄 Creating node features...")
+    for acc in tqdm(account_list, desc="Processing accounts", unit="accounts"):
         from_trans = clean_transactions[clean_transactions['From Bank'].astype(str) == acc]
         to_trans = clean_transactions[clean_transactions['To Bank'].astype(str) == acc]
         
@@ -312,7 +315,8 @@ def comprehensive_model_evaluation(model, transactions, device):
     edge_attr_list = []
     y_true_list = []
     
-    for _, transaction in clean_transactions.iterrows():
+    print("   🔄 Creating edge features...")
+    for _, transaction in tqdm(clean_transactions.iterrows(), total=len(clean_transactions), desc="Processing transactions", unit="txns"):
         from_acc = str(transaction['From Bank'])
         to_acc = str(transaction['To Bank'])
         
@@ -348,9 +352,17 @@ def comprehensive_model_evaluation(model, transactions, device):
     model.eval()
     with torch.no_grad():
         print("🔄 Running model inference...")
+        
+        # Add progress bar for inference
+        start_time = time.time()
+        print("   ⚡ Processing through GNN layers...")
+        
         logits = model(x, edge_index, edge_attr)
         probabilities = torch.softmax(logits, dim=1)
         predictions = torch.argmax(logits, dim=1)
+        
+        inference_time = time.time() - start_time
+        print(f"   ✅ Inference completed in {inference_time:.2f} seconds")
     
     # Move to CPU for sklearn metrics
     y_true_cpu = y_true.cpu().numpy()
@@ -358,15 +370,30 @@ def comprehensive_model_evaluation(model, transactions, device):
     probabilities_cpu = probabilities.cpu().numpy()
     
     # Calculate metrics
-    metrics = {
-        'accuracy': accuracy_score(y_true_cpu, predictions_cpu),
-        'f1_weighted': f1_score(y_true_cpu, predictions_cpu, average='weighted'),
-        'f1_macro': f1_score(y_true_cpu, predictions_cpu, average='macro'),
-        'precision_weighted': precision_score(y_true_cpu, predictions_cpu, average='weighted'),
-        'recall_weighted': recall_score(y_true_cpu, predictions_cpu, average='weighted'),
-        'roc_auc': roc_auc_score(y_true_cpu, probabilities_cpu[:, 1]),
-        'avg_precision': average_precision_score(y_true_cpu, probabilities_cpu[:, 1])
-    }
+    print("   📊 Calculating performance metrics...")
+    with tqdm(total=7, desc="Computing metrics", unit="metric") as pbar:
+        metrics = {}
+        
+        metrics['accuracy'] = accuracy_score(y_true_cpu, predictions_cpu)
+        pbar.update(1)
+        
+        metrics['f1_weighted'] = f1_score(y_true_cpu, predictions_cpu, average='weighted')
+        pbar.update(1)
+        
+        metrics['f1_macro'] = f1_score(y_true_cpu, predictions_cpu, average='macro')
+        pbar.update(1)
+        
+        metrics['precision_weighted'] = precision_score(y_true_cpu, predictions_cpu, average='weighted')
+        pbar.update(1)
+        
+        metrics['recall_weighted'] = recall_score(y_true_cpu, predictions_cpu, average='weighted')
+        pbar.update(1)
+        
+        metrics['roc_auc'] = roc_auc_score(y_true_cpu, probabilities_cpu[:, 1])
+        pbar.update(1)
+        
+        metrics['avg_precision'] = average_precision_score(y_true_cpu, probabilities_cpu[:, 1])
+        pbar.update(1)
     
     cm = confusion_matrix(y_true_cpu, predictions_cpu)
     class_report = classification_report(y_true_cpu, predictions_cpu, output_dict=True)
@@ -404,48 +431,59 @@ def create_final_visualization(evaluation_results):
     """Create final comprehensive visualization"""
     print("📈 Creating final evaluation visualization...")
     
-    metrics = evaluation_results['metrics']
-    cm = evaluation_results['confusion_matrix']
+    with tqdm(total=5, desc="Creating plots", unit="plot") as pbar:
+        metrics = evaluation_results['metrics']
+        cm = evaluation_results['confusion_matrix']
+        
+        pbar.set_description("Setting up plot layout")
+        pbar.update(1)
     
-    # Create figure
-    fig, axes = plt.subplots(2, 2, figsize=(15, 12))
-    fig.suptitle('🚀 AML Detection Model - Final Evaluation Results', fontsize=16, fontweight='bold')
+        # Create figure
+        fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+        fig.suptitle('🚀 AML Detection Model - Final Evaluation Results', fontsize=16, fontweight='bold')
+        
+        pbar.set_description("Creating confusion matrix")
+        # 1. Confusion Matrix
+        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+                    xticklabels=['Non-AML', 'AML'], 
+                    yticklabels=['Non-AML', 'AML'], ax=axes[0,0])
+        axes[0,0].set_title('Confusion Matrix', fontweight='bold')
+        pbar.update(1)
+        
+        pbar.set_description("Creating performance metrics")
+        # 2. Performance Metrics
+        metric_names = ['Accuracy', 'F1', 'Precision', 'Recall', 'ROC-AUC']
+        metric_values = [
+            metrics['accuracy'], metrics['f1_weighted'], 
+            metrics['precision_weighted'], metrics['recall_weighted'], metrics['roc_auc']
+        ]
+        bars = axes[0,1].bar(metric_names, metric_values, color=['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd'])
+        axes[0,1].set_title('Performance Metrics', fontweight='bold')
+        axes[0,1].set_ylim(0, 1)
+        
+        # Add values on bars
+        for bar, value in zip(bars, metric_values):
+            axes[0,1].text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01, 
+                    f'{value:.3f}', ha='center', va='bottom', fontweight='bold')
+        pbar.update(1)
+        
+        pbar.set_description("Creating ROC curve")
+        # 3. ROC Curve
+        from sklearn.metrics import roc_curve
+        fpr, tpr, _ = roc_curve(evaluation_results['y_true'], evaluation_results['probabilities'][:, 1])
+        axes[1,0].plot(fpr, tpr, linewidth=2, label=f'ROC (AUC={metrics["roc_auc"]:.3f})')
+        axes[1,0].plot([0, 1], [0, 1], 'k--', linewidth=1, label='Random')
+        axes[1,0].set_xlabel('False Positive Rate')
+        axes[1,0].set_ylabel('True Positive Rate')
+        axes[1,0].set_title('ROC Curve', fontweight='bold')
+        axes[1,0].legend()
+        axes[1,0].grid(True, alpha=0.3)
+        pbar.update(1)
     
-    # 1. Confusion Matrix
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
-                xticklabels=['Non-AML', 'AML'], 
-                yticklabels=['Non-AML', 'AML'], ax=axes[0,0])
-    axes[0,0].set_title('Confusion Matrix', fontweight='bold')
-    
-    # 2. Performance Metrics
-    metric_names = ['Accuracy', 'F1', 'Precision', 'Recall', 'ROC-AUC']
-    metric_values = [
-        metrics['accuracy'], metrics['f1_weighted'], 
-        metrics['precision_weighted'], metrics['recall_weighted'], metrics['roc_auc']
-    ]
-    bars = axes[0,1].bar(metric_names, metric_values, color=['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd'])
-    axes[0,1].set_title('Performance Metrics', fontweight='bold')
-    axes[0,1].set_ylim(0, 1)
-    
-    # Add values on bars
-    for bar, value in zip(bars, metric_values):
-        axes[0,1].text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01, 
-                f'{value:.3f}', ha='center', va='bottom', fontweight='bold')
-    
-    # 3. ROC Curve
-    from sklearn.metrics import roc_curve
-    fpr, tpr, _ = roc_curve(evaluation_results['y_true'], evaluation_results['probabilities'][:, 1])
-    axes[1,0].plot(fpr, tpr, linewidth=2, label=f'ROC (AUC={metrics["roc_auc"]:.3f})')
-    axes[1,0].plot([0, 1], [0, 1], 'k--', linewidth=1, label='Random')
-    axes[1,0].set_xlabel('False Positive Rate')
-    axes[1,0].set_ylabel('True Positive Rate')
-    axes[1,0].set_title('ROC Curve', fontweight='bold')
-    axes[1,0].legend()
-    axes[1,0].grid(True, alpha=0.3)
-    
-    # 4. Summary
-    axes[1,1].axis('off')
-    summary_text = f"""
+        pbar.set_description("Creating summary")
+        # 4. Summary
+        axes[1,1].axis('off')
+        summary_text = f"""
 📊 FINAL EVALUATION SUMMARY
 ==========================
 Dataset: {len(evaluation_results['y_true']):,} transactions
@@ -466,15 +504,17 @@ AML Rate: {evaluation_results['y_true'].mean()*100:.2f}%
 • False Negatives: {cm[1][0]:,}
 
 ✅ STATUS: PRODUCTION READY
-    """
-    
-    axes[1,1].text(0.1, 0.9, summary_text, fontsize=11, verticalalignment='top', 
-             fontfamily='monospace', bbox=dict(boxstyle="round,pad=0.5", facecolor="lightgreen", alpha=0.8))
-    
-    plt.tight_layout()
-    plt.savefig('/content/drive/MyDrive/LaunDetection/final_model_evaluation.png', 
-                dpi=300, bbox_inches='tight')
-    plt.show()
+        """
+        
+        axes[1,1].text(0.1, 0.9, summary_text, fontsize=11, verticalalignment='top', 
+                 fontfamily='monospace', bbox=dict(boxstyle="round,pad=0.5", facecolor="lightgreen", alpha=0.8))
+        pbar.update(1)
+        
+        pbar.set_description("Saving visualization")
+        plt.tight_layout()
+        plt.savefig('/content/drive/MyDrive/LaunDetection/final_model_evaluation.png', 
+                    dpi=300, bbox_inches='tight')
+        plt.show()
     
     print("✅ Final evaluation visualization saved!")
 
