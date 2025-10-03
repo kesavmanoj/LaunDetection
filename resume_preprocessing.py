@@ -148,27 +148,39 @@ def main():
                 edge_features = []
                 edge_labels = []
                 
-                for _, row in tqdm(balanced_transactions.iterrows(), total=len(balanced_transactions), desc="Processing LI-Medium edges"):
-                    # Create edge features
-                    edge_feature = preprocessor.create_enhanced_edge_features(row, accounts)
-                    edge_features.append(edge_feature)
+                # Process edges in batches to avoid memory issues
+                batch_size = 10000
+                total_edges = len(balanced_transactions)
+                
+                for i in tqdm(range(0, total_edges, batch_size), desc="Processing LI-Medium edges"):
+                    batch_end = min(i + batch_size, total_edges)
+                    batch = balanced_transactions.iloc[i:batch_end]
                     
-                    # Get label - try different possible column names
-                    aml_col = None
-                    possible_aml_cols = ['Is Laundering', 'is_laundering', 'IsLaundering', 'aml', 'label']
+                    for _, row in batch.iterrows():
+                        # Create edge features
+                        edge_feature = preprocessor.create_enhanced_edge_features(row, accounts)
+                        edge_features.append(edge_feature)
+                        
+                        # Get label - try different possible column names
+                        aml_col = None
+                        possible_aml_cols = ['Is Laundering', 'is_laundering', 'IsLaundering', 'aml', 'label']
+                        
+                        for col in possible_aml_cols:
+                            if col in row.index:
+                                aml_col = col
+                                break
+                        
+                        if aml_col is None:
+                            print(f"   ❌ Could not find AML label column")
+                            print(f"   Available columns: {list(row.index)}")
+                            return
+                        
+                        is_aml = int(row[aml_col])
+                        edge_labels.append(is_aml)
                     
-                    for col in possible_aml_cols:
-                        if col in row.index:
-                            aml_col = col
-                            break
-                    
-                    if aml_col is None:
-                        print(f"   ❌ Could not find AML label column")
-                        print(f"   Available columns: {list(row.index)}")
-                        return
-                    
-                    is_aml = int(row[aml_col])
-                    edge_labels.append(is_aml)
+                    # Memory cleanup for each batch
+                    if i % (batch_size * 10) == 0:
+                        gc.collect()
                 
                 print(f"   ✅ Created {len(edge_features):,} edge feature vectors")
                 
