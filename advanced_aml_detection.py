@@ -330,7 +330,7 @@ class AdvancedAMLTrainer:
         
         return data
     
-    def train_advanced_aml_model(self, data, epochs=500, learning_rate=0.0003):
+    def train_advanced_aml_model(self, data, epochs=1000, learning_rate=0.0001):
         """Train advanced model with extreme AML focus"""
         print("🚀 Starting Advanced AML Detection Training...")
         
@@ -347,28 +347,28 @@ class AdvancedAMLTrainer:
         
         print(f"✅ Advanced model created with {sum(p.numel() for p in self.model.parameters()):,} parameters")
         
-        # Setup training with extreme AML focus
+        # Setup training with balanced AML focus
         optimizer = torch.optim.AdamW(self.model.parameters(), lr=learning_rate, weight_decay=1e-5)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=100, T_mult=2)
         
-        # Advanced Focal Loss for extreme imbalance
-        focal_loss = AdvancedFocalLoss(alpha=3, gamma=4)
+        # Advanced Focal Loss for balanced learning
+        focal_loss = AdvancedFocalLoss(alpha=2, gamma=3)
         
-        # Extreme class weights for AML
+        # Balanced class weights for AML
         class_counts = torch.bincount(data.y)
         class_weights = len(data.y) / (len(class_counts) * class_counts.float())
         class_weights = class_weights / class_weights.sum() * len(class_counts)
         
-        # Extreme boost for AML class
-        class_weights[1] = class_weights[1] * 10.0  # 10x boost for AML class
+        # Moderate boost for AML class
+        class_weights[1] = class_weights[1] * 3.0  # 3x boost for AML class
         
         weighted_criterion = nn.CrossEntropyLoss(weight=class_weights)
         
         print(f"   📊 Class weights: {class_weights}")
-        print(f"   🎯 Training for {epochs} epochs with Advanced Focal Loss...")
+        print(f"   🎯 Training for {epochs} epochs with Optimized Advanced Focal Loss...")
         
         best_aml_f1 = 0.0
-        patience = 50
+        patience = 100
         patience_counter = 0
         
         for epoch in range(epochs):
@@ -385,8 +385,8 @@ class AdvancedAMLTrainer:
             focal_loss_val = focal_loss(out, data.y)
             weighted_loss_val = weighted_criterion(out, data.y)
             
-            # Combine losses with extreme AML focus
-            loss = 0.8 * focal_loss_val + 0.2 * weighted_loss_val
+            # Combine losses with balanced focus
+            loss = 0.6 * focal_loss_val + 0.4 * weighted_loss_val
             
             if torch.isnan(loss):
                 print(f"   ⚠️ NaN loss at epoch {epoch+1}")
@@ -398,8 +398,8 @@ class AdvancedAMLTrainer:
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=0.5)
             optimizer.step()
             
-            # Validation every 10 epochs
-            if epoch % 10 == 0:
+            # Validation every 5 epochs
+            if epoch % 5 == 0:
                 self.model.eval()
                 with torch.no_grad():
                     out = self.model(data.x, data.edge_index, data.edge_attr)
@@ -560,7 +560,7 @@ def main():
     
     print("\n🎉 Advanced AML Detection Complete!")
     print("=" * 50)
-    print("✅ Advanced model trained with extreme AML focus")
+    print("✅ Advanced model trained with optimized AML focus")
     print("✅ Threshold optimization applied")
     print("✅ Ensemble-like architecture used")
     
