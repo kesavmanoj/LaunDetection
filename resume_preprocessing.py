@@ -95,7 +95,34 @@ def main():
                 print("   🔄 Creating enhanced node features for LI-Medium...")
                 
                 # Get unique accounts from balanced dataset
-                unique_accounts = set(balanced_transactions['From Account'].unique()) | set(balanced_transactions['To Account'].unique())
+                # Check column names first
+                print(f"   📊 Available columns: {list(balanced_transactions.columns)}")
+                
+                # Try different possible column names
+                from_col = None
+                to_col = None
+                
+                possible_from_cols = ['From Account', 'from_account', 'FromAccount', 'from', 'source']
+                possible_to_cols = ['To Account', 'to_account', 'ToAccount', 'to', 'target']
+                
+                for col in possible_from_cols:
+                    if col in balanced_transactions.columns:
+                        from_col = col
+                        break
+                
+                for col in possible_to_cols:
+                    if col in balanced_transactions.columns:
+                        to_col = col
+                        break
+                
+                if from_col is None or to_col is None:
+                    print(f"   ❌ Could not find account columns")
+                    print(f"   Available columns: {list(balanced_transactions.columns)}")
+                    return
+                
+                print(f"   📊 Using columns: {from_col}, {to_col}")
+                
+                unique_accounts = set(balanced_transactions[from_col].unique()) | set(balanced_transactions[to_col].unique())
                 print(f"   📊 Processing {len(unique_accounts):,} unique accounts...")
                 
                 # Create node features with progress bar
@@ -126,8 +153,21 @@ def main():
                     edge_feature = preprocessor.create_enhanced_edge_features(row, accounts)
                     edge_features.append(edge_feature)
                     
-                    # Get label
-                    is_aml = int(row['Is Laundering'])
+                    # Get label - try different possible column names
+                    aml_col = None
+                    possible_aml_cols = ['Is Laundering', 'is_laundering', 'IsLaundering', 'aml', 'label']
+                    
+                    for col in possible_aml_cols:
+                        if col in row.index:
+                            aml_col = col
+                            break
+                    
+                    if aml_col is None:
+                        print(f"   ❌ Could not find AML label column")
+                        print(f"   Available columns: {list(row.index)}")
+                        return
+                    
+                    is_aml = int(row[aml_col])
                     edge_labels.append(is_aml)
                 
                 print(f"   ✅ Created {len(edge_features):,} edge feature vectors")
