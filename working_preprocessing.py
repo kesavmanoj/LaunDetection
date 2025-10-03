@@ -27,7 +27,7 @@ def main():
     print("📊 HI-Medium: Limited to 15M transactions")
     print("📊 LI-Medium: Limited to 15M transactions")
     print("📊 Large datasets: COMPLETELY SKIPPED")
-    print("📊 AML Rate: 5% (reduced from 15% for better data retention)")
+    print("📊 AML Rate: 10% (optimized for better AML detection performance)")
     print()
     
     # Initialize preprocessor
