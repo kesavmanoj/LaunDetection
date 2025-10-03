@@ -26,7 +26,7 @@ def main():
     print("📊 LI-Small: Full dataset (7M transactions)")
     print("📊 HI-Medium: Limited to 15M transactions")
     print("📊 LI-Medium: Limited to 15M transactions")
-    print("📊 Large datasets: Skipped")
+    print("📊 Large datasets: COMPLETELY SKIPPED")
     print("📊 AML Rate: 5% (reduced from 15% for better data retention)")
     print()
     

@@ -117,12 +117,17 @@ class MultiDatasetPreprocessor:
             'LI-Small': 999999999,   # Process ENTIRE dataset (7M transactions)
             'HI-Medium': 15000000,   # Limit to 15M transactions only
             'LI-Medium': 15000000,   # Limit to 15M transactions only
-            'HI-Large': 0,           # Skip large datasets
-            'LI-Large': 0            # Skip large datasets
+            'HI-Large': -1,          # SKIP large datasets completely
+            'LI-Large': -1           # SKIP large datasets completely
         }
         
         for dataset_name, files in dataset_files.items():
             print(f"\n🔍 Checking for {dataset_name} dataset...")
+            
+            # Skip large datasets completely
+            if memory_limits[dataset_name] == -1:
+                print(f"   ⏭️ Skipping {dataset_name} (large dataset)")
+                continue
             
             trans_file = os.path.join(self.data_path, files[0])
             accounts_file = os.path.join(self.data_path, files[1])
