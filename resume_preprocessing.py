@@ -43,11 +43,28 @@ def main():
     print("🔄 Continuing LI-Medium dataset processing...")
     
     try:
-        # Load LI-Medium dataset
-        trans_file = "/content/drive/MyDrive/LaunDetection/data/LI-Medium_Trans.csv"
-        accounts_file = "/content/drive/MyDrive/LaunDetection/data/LI-Medium_accounts.csv"
+        # Load LI-Medium dataset (check multiple possible locations)
+        possible_paths = [
+            "/content/raw/data/LI-Medium_Trans.csv",
+            "/content/drive/MyDrive/LaunDetection/data/LI-Medium_Trans.csv",
+            "/content/LaunDetection/data/LI-Medium_Trans.csv"
+        ]
         
-        if os.path.exists(trans_file) and os.path.exists(accounts_file):
+        print("   🔍 Checking for LI-Medium dataset files...")
+        trans_file = None
+        accounts_file = None
+        
+        for path in possible_paths:
+            print(f"      Checking: {path}")
+            if os.path.exists(path):
+                print(f"      ✅ Found: {path}")
+                trans_file = path
+                accounts_file = path.replace("_Trans.csv", "_accounts.csv")
+                break
+            else:
+                print(f"      ❌ Not found: {path}")
+        
+        if trans_file and os.path.exists(trans_file) and os.path.exists(accounts_file):
             print("   ✅ Found LI-Medium dataset files")
             
             # Load with memory management (15M limit)
