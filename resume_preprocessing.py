@@ -184,9 +184,9 @@ def main():
                 
                 # Add edges
                 for _, row in balanced_transactions.iterrows():
-                    from_acc = row['From Account']
-                    to_acc = row['To Account']
-                    is_aml = int(row['Is Laundering'])
+                    from_acc = row[from_col]
+                    to_acc = row[to_col]
+                    is_aml = int(row[aml_col])
                     
                     if G.has_edge(from_acc, to_acc):
                         # Update edge attributes if it exists
