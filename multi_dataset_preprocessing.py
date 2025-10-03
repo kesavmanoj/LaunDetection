@@ -293,7 +293,7 @@ class MultiDatasetPreprocessor:
         print(f"   ✅ Created {len(edge_features):,} edge feature vectors")
         return edge_features, edge_labels
     
-    def create_balanced_dataset(self, transactions, target_aml_rate=0.1):
+    def create_balanced_dataset(self, transactions, target_aml_rate=0.05):
         """Create a balanced dataset with target AML rate - ENHANCED for full datasets"""
         print(f"   🔄 Creating balanced dataset with {target_aml_rate*100:.1f}% AML rate...")
         
@@ -337,7 +337,7 @@ class MultiDatasetPreprocessor:
         print(f"   📊 This will provide maximum training data for better AML detection!")
         
         # Create balanced dataset
-        balanced_transactions = self.create_balanced_dataset(transactions, target_aml_rate=0.1)
+        balanced_transactions = self.create_balanced_dataset(transactions, target_aml_rate=0.05)
         
         # Memory cleanup
         del transactions
