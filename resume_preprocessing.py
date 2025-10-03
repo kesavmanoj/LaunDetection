@@ -102,8 +102,8 @@ def main():
                 from_col = None
                 to_col = None
                 
-                possible_from_cols = ['From Account', 'from_account', 'FromAccount', 'from', 'source']
-                possible_to_cols = ['To Account', 'to_account', 'ToAccount', 'to', 'target']
+                possible_from_cols = ['From Account', 'from_account', 'FromAccount', 'from', 'source', 'Account']
+                possible_to_cols = ['To Account', 'to_account', 'ToAccount', 'to', 'target', 'Account.1']
                 
                 for col in possible_from_cols:
                     if col in balanced_transactions.columns:
