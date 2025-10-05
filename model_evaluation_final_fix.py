@@ -181,25 +181,26 @@ class ProductionEdgeLevelGNN(nn.Module):
                 nn.Dropout(self.dropout_rate),
                 nn.Linear(self.hidden_dim // 4, self.output_dim)
             ).to(edge_features.device)
-        
-        # Check dimension compatibility
-        expected_input_dim = self.edge_classifier[0].in_features
-        actual_input_dim = edge_features.shape[1]
-        
-        if expected_input_dim != actual_input_dim:
-            print(f"   ⚠️ Dimension mismatch: expected {expected_input_dim}, got {actual_input_dim}")
+        else:
+            # Edge classifier already initialized, check dimension compatibility
+            expected_input_dim = self.edge_classifier[0].in_features
+            actual_input_dim = edge_features.shape[1]
             
-            # Pad or truncate features to match expected dimension
-            if actual_input_dim < expected_input_dim:
-                # Pad with zeros
-                padding = torch.zeros(edge_features.shape[0], expected_input_dim - actual_input_dim, 
-                                    device=edge_features.device)
-                edge_features = torch.cat([edge_features, padding], dim=1)
-                print(f"   ✅ Padded features to {edge_features.shape[1]} dimensions")
-            elif actual_input_dim > expected_input_dim:
-                # Truncate
-                edge_features = edge_features[:, :expected_input_dim]
-                print(f"   ✅ Truncated features to {edge_features.shape[1]} dimensions")
+            if expected_input_dim != actual_input_dim:
+                print(f"   ⚠️ Dimension mismatch: expected {expected_input_dim}, got {actual_input_dim}")
+                
+                # Pad or truncate features to match expected dimension
+                if actual_input_dim < expected_input_dim:
+                    # Pad with zeros
+                    padding = torch.zeros(edge_features.shape[0], expected_input_dim - actual_input_dim, 
+                                        device=edge_features.device)
+                    edge_features = torch.cat([edge_features, padding], dim=1)
+                    print(f"   ✅ Padded features to {edge_features.shape[1]} dimensions")
+                elif actual_input_dim > expected_input_dim:
+                    # Truncate
+                    edge_features = edge_features[:, :expected_input_dim]
+                    print(f"   ✅ Truncated features to {edge_features.shape[1]} dimensions")
+        
         
         edge_output = self.edge_classifier(edge_features)
         
@@ -280,32 +281,26 @@ def load_production_model_and_data():
     if os.path.exists(model_path):
         print("🔧 Loading trained model weights...")
         
-        state_dict = torch.load(model_path, map_location=device)
-        
-        # Check edge classifier dimensions
-        edge_classifier_keys = [k for k in state_dict.keys() if 'edge_classifier' in k]
-        
-        if edge_classifier_keys:
-            first_layer_weight = state_dict['edge_classifier.0.weight']
-            expected_input_dim = first_layer_weight.shape[1]
-            print(f"   Expected edge classifier input dimension: {expected_input_dim}")
+        try:
+            state_dict = torch.load(model_path, map_location=device)
             
-            # Initialize edge classifier with expected dimensions
-            model.edge_classifier = nn.Sequential(
-                nn.Linear(expected_input_dim, model.hidden_dim),
-                nn.ReLU(),
-                nn.Dropout(model.dropout_rate),
-                nn.Linear(model.hidden_dim, model.hidden_dim // 2),
-                nn.ReLU(),
-                nn.Dropout(model.dropout_rate),
-                nn.Linear(model.hidden_dim // 2, model.output_dim)
-            ).to(device)
+            # Initialize edge classifier first
+            print("🔧 Initializing edge classifier to match saved model...")
+            
+            # Create a dummy forward pass to initialize edge classifier
+            dummy_x = torch.randn(100, 15).to(device)
+            dummy_edge_index = torch.randint(0, 100, (2, 200)).to(device)
+            dummy_edge_attr = torch.randn(200, 13).to(device)
+            
+            with torch.no_grad():
+                _ = model(dummy_x, dummy_edge_index, dummy_edge_attr)
             
             # Load full state dict
             model.load_state_dict(state_dict)
             print("✅ Successfully loaded trained production model")
-        else:
-            print("⚠️ No edge classifier found in saved model")
+        except Exception as e:
+            print(f"⚠️ Could not load production model: {e}")
+            print("⚠️ Using untrained model")
     else:
         print("⚠️ Production model not found, using untrained model")
     
@@ -913,6 +908,19 @@ def comprehensive_multi_dataset_evaluation():
         if os.path.exists(model_path):
             try:
                 state_dict = torch.load(model_path, map_location=device)
+                
+                # Initialize edge classifier first to match saved model
+                print("🔧 Initializing edge classifier to match saved model...")
+                
+                # Create a dummy forward pass to initialize edge classifier
+                dummy_x = torch.randn(100, 15).to(device)
+                dummy_edge_index = torch.randint(0, 100, (2, 200)).to(device)
+                dummy_edge_attr = torch.randn(200, 13).to(device)
+                
+                with torch.no_grad():
+                    _ = model(dummy_x, dummy_edge_index, dummy_edge_attr)
+                
+                # Now load the state dict
                 model.load_state_dict(state_dict)
                 print(f"✅ Loaded model from: {model_path}")
                 model_loaded = True
