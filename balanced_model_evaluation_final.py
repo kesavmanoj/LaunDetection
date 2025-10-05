@@ -66,77 +66,53 @@ class AdvancedAMLGNN(nn.Module):
         if torch.isnan(x).any():
             x = torch.nan_to_num(x, nan=0.0)
         
-        # Try dual branch first (for advanced models)
-        try:
-            # Branch 1 processing
-            x1 = self.conv1_branch1(x, edge_index)
-            x1 = self.bn1(x1)
-            x1 = F.relu(x1)
-            x1 = self.dropout(x1)
-            
-            if torch.isnan(x1).any():
-                x1 = torch.nan_to_num(x1, nan=0.0)
-            
-            x1 = self.conv2_branch1(x1, edge_index)
-            x1 = self.bn2(x1)
-            x1 = F.relu(x1)
-            x1 = self.dropout(x1)
-            
-            if torch.isnan(x1).any():
-                x1 = torch.nan_to_num(x1, nan=0.0)
-            
-            x1 = self.conv3_branch1(x1, edge_index)
-            x1 = self.bn3(x1)
-            x1 = F.relu(x1)
-            x1 = self.dropout(x1)
-            
-            # Branch 2 processing
-            x2 = self.conv1_branch2(x, edge_index)
-            x2 = self.bn1(x2)
-            x2 = F.relu(x2)
-            x2 = self.dropout(x2)
-            
-            if torch.isnan(x2).any():
-                x2 = torch.nan_to_num(x2, nan=0.0)
-            
-            x2 = self.conv2_branch2(x2, edge_index)
-            x2 = self.bn2(x2)
-            x2 = F.relu(x2)
-            x2 = self.dropout(x2)
-            
-            if torch.isnan(x2).any():
-                x2 = torch.nan_to_num(x2, nan=0.0)
-            
-            x2 = self.conv3_branch2(x2, edge_index)
-            x2 = self.bn3(x2)
-            x2 = F.relu(x2)
-            x2 = self.dropout(x2)
-            
-            # Combine branches
-            x_combined = x1 + x2  # Element-wise addition
-            
-        except:
-            # Fallback to single branch (for memory-efficient models)
-            x_combined = self.conv1(x, edge_index)
-            x_combined = self.bn1(x_combined)
-            x_combined = F.relu(x_combined)
-            x_combined = self.dropout(x_combined)
-            
-            if torch.isnan(x_combined).any():
-                x_combined = torch.nan_to_num(x_combined, nan=0.0)
-            
-            x_combined = self.conv2(x_combined, edge_index)
-            x_combined = self.bn2(x_combined)
-            x_combined = F.relu(x_combined)
-            x_combined = self.dropout(x_combined)
-            
-            if torch.isnan(x_combined).any():
-                x_combined = torch.nan_to_num(x_combined, nan=0.0)
-            
-            x_combined = self.conv3(x_combined, edge_index)
-            x_combined = self.bn3(x_combined)
-            x_combined = F.relu(x_combined)
-            x_combined = self.dropout(x_combined)
+        # Use dual branch architecture (for comprehensive chunked model)
+        # Branch 1 processing
+        x1 = self.conv1_branch1(x, edge_index)
+        x1 = self.bn1(x1)
+        x1 = F.relu(x1)
+        x1 = self.dropout(x1)
+        
+        if torch.isnan(x1).any():
+            x1 = torch.nan_to_num(x1, nan=0.0)
+        
+        x1 = self.conv2_branch1(x1, edge_index)
+        x1 = self.bn2(x1)
+        x1 = F.relu(x1)
+        x1 = self.dropout(x1)
+        
+        if torch.isnan(x1).any():
+            x1 = torch.nan_to_num(x1, nan=0.0)
+        
+        x1 = self.conv3_branch1(x1, edge_index)
+        x1 = self.bn3(x1)
+        x1 = F.relu(x1)
+        x1 = self.dropout(x1)
+        
+        # Branch 2 processing
+        x2 = self.conv1_branch2(x, edge_index)
+        x2 = self.bn1(x2)
+        x2 = F.relu(x2)
+        x2 = self.dropout(x2)
+        
+        if torch.isnan(x2).any():
+            x2 = torch.nan_to_num(x2, nan=0.0)
+        
+        x2 = self.conv2_branch2(x2, edge_index)
+        x2 = self.bn2(x2)
+        x2 = F.relu(x2)
+        x2 = self.dropout(x2)
+        
+        if torch.isnan(x2).any():
+            x2 = torch.nan_to_num(x2, nan=0.0)
+        
+        x2 = self.conv3_branch2(x2, edge_index)
+        x2 = self.bn3(x2)
+        x2 = F.relu(x2)
+        x2 = self.dropout(x2)
+        
+        # Combine branches
+        x_combined = x1 + x2  # Element-wise addition
         
         if torch.isnan(x_combined).any():
             x_combined = torch.nan_to_num(x_combined, nan=0.0)
@@ -167,9 +143,9 @@ class AdvancedAMLGNN(nn.Module):
         # Check if edge classifier needs initialization
         if self.edge_classifier is None:
             actual_input_dim = edge_features.shape[1]
-            print(f"   Initializing advanced edge classifier with input_dim={actual_input_dim}")
+            print(f"   Initializing comprehensive edge classifier with input_dim={actual_input_dim}")
             
-            # Advanced edge classifier (matches trained model)
+            # Comprehensive edge classifier (matches trained model)
             self.edge_classifier = nn.Sequential(
                 nn.Linear(actual_input_dim, self.hidden_dim),
                 nn.ReLU(),
@@ -278,7 +254,7 @@ def load_production_model_and_balanced_data():
     # Create model with flexible architecture (matches trained model)
     model = AdvancedAMLGNN(
         input_dim=15,
-        hidden_dim=128,  # Default to 128, will be adjusted based on loaded model
+        hidden_dim=256,  # Updated to match comprehensive chunked model
         output_dim=2,
         dropout=0.1
     ).to(device)
@@ -316,7 +292,7 @@ def load_production_model_and_balanced_data():
                 expected_input_dim = first_layer_weight.shape[1]
                 print(f"   Expected edge classifier input dimension: {expected_input_dim}")
                 
-                # Initialize edge classifier with expected dimensions (matches trained model)
+                # Initialize edge classifier with expected dimensions (matches comprehensive chunked model)
                 model.edge_classifier = nn.Sequential(
                     nn.Linear(expected_input_dim, model.hidden_dim),
                     nn.ReLU(),
