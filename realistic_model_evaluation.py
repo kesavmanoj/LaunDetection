@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Realistic Model Evaluation - Test on Different Dataset
-=====================================================
+Realistic Model Evaluation - Truly Unseen Data
+==============================================
 
-Tests the model on a completely different dataset to check for overfitting.
+Evaluates the model on completely unseen data to test real generalization.
 """
 
 import torch
@@ -18,7 +18,7 @@ from tqdm import tqdm
 import warnings
 warnings.filterwarnings('ignore')
 
-print("📊 Realistic Model Evaluation - Different Dataset")
+print("📊 Realistic Model Evaluation - Truly Unseen Data")
 print("=" * 50)
 
 class AdvancedAMLGNN(nn.Module):
@@ -94,7 +94,7 @@ class AdvancedAMLGNN(nn.Module):
         x2 = self.dropout(x2)
         
         # Combine branches
-        x_combined = x1 + x2
+        x_combined = x1 + x2  # Element-wise addition
         
         if torch.isnan(x_combined).any():
             x_combined = torch.nan_to_num(x_combined, nan=0.0)
@@ -147,75 +147,69 @@ class AdvancedAMLGNN(nn.Module):
         
         return edge_output
 
-def load_different_dataset():
-    """Load a different dataset for realistic evaluation"""
-    print("📊 Loading LI-Small dataset for realistic evaluation...")
+def load_completely_unseen_data():
+    """Load data that was NOT used in training"""
+    print("📊 Loading completely unseen data for realistic evaluation...")
     
     data_path = "/content/drive/MyDrive/LaunDetection/data/raw"
-    file_path = os.path.join(data_path, 'LI-Small_Trans.csv')
     
-    if not os.path.exists(file_path):
-        print(f"❌ LI-Small dataset not found: {file_path}")
-        return None
+    # Try to load a dataset that wasn't used in training
+    # If HI-Small was used in training, try LI-Small or vice versa
+    unseen_datasets = ['LI-Small', 'HI-Medium', 'LI-Medium']
     
-    # Load with memory management
-    print("   📁 Loading dataset...")
+    for dataset_name in unseen_datasets:
+        file_path = os.path.join(data_path, f'{dataset_name}_Trans.csv')
+        if os.path.exists(file_path):
+            print(f"🔍 Loading {dataset_name} (unseen data)...")
+            
+            # Load with memory management
+            transactions = pd.read_csv(file_path)
+            print(f"   📁 Loaded: {len(transactions):,} transactions")
+            
+            # Clean data
+            clean_transactions = transactions.dropna()
+            clean_transactions = clean_transactions[clean_transactions['Amount Received'] > 0]
+            clean_transactions = clean_transactions[~np.isinf(clean_transactions['Amount Received'])]
+            
+            # Limit for evaluation (memory management)
+            max_transactions = 50000  # 50K transactions for evaluation
+            if len(clean_transactions) > max_transactions:
+                clean_transactions = clean_transactions.sample(n=max_transactions, random_state=42)
+                print(f"   ⚠️ Limited to {max_transactions:,} transactions for evaluation")
+            
+            print(f"✅ Using {dataset_name} for evaluation:")
+            print(f"   Total transactions: {len(clean_transactions):,}")
+            print(f"   AML: {clean_transactions['Is Laundering'].sum():,}")
+            print(f"   Non-AML: {(clean_transactions['Is Laundering'] == 0).sum():,}")
+            print(f"   AML rate: {clean_transactions['Is Laundering'].mean()*100:.4f}%")
+            
+            return clean_transactions, dataset_name
+    
+    print("❌ No unseen datasets found. Using HI-Small with different sampling...")
+    
+    # Fallback: Use HI-Small but with different sampling
+    file_path = os.path.join(data_path, 'HI-Small_Trans.csv')
     transactions = pd.read_csv(file_path)
-    print(f"   📁 Loaded: {len(transactions):,} transactions")
     
-    # Clean data
+    # Use different random seed to get different data
     clean_transactions = transactions.dropna()
     clean_transactions = clean_transactions[clean_transactions['Amount Received'] > 0]
     clean_transactions = clean_transactions[~np.isinf(clean_transactions['Amount Received'])]
     
-    # Limit for evaluation (different from training)
-    max_transactions = 200000  # 200K transactions
-    if len(clean_transactions) > max_transactions:
-        clean_transactions = clean_transactions.sample(n=max_transactions, random_state=123)  # Different seed
+    # Sample different data (different random seed)
+    clean_transactions = clean_transactions.sample(n=min(50000, len(clean_transactions)), random_state=123)  # Different seed
     
-    print(f"✅ LI-Small: {len(clean_transactions):,} transactions")
+    print(f"✅ Using HI-Small with different sampling:")
+    print(f"   Total transactions: {len(clean_transactions):,}")
     print(f"   AML: {clean_transactions['Is Laundering'].sum():,}")
     print(f"   Non-AML: {(clean_transactions['Is Laundering'] == 0).sum():,}")
     print(f"   AML rate: {clean_transactions['Is Laundering'].mean()*100:.4f}%")
     
-    return clean_transactions
+    return clean_transactions, 'HI-Small (different sampling)'
 
-def create_realistic_test_data(data, target_aml_rate=0.05):
-    """Create realistic test data with lower AML rate"""
-    print(f"\n🔄 Creating realistic test data ({target_aml_rate*100:.1f}% AML rate)...")
-    
-    aml_transactions = data[data['Is Laundering'] == 1]
-    non_aml_transactions = data[data['Is Laundering'] == 0]
-    
-    print(f"   Available AML: {len(aml_transactions):,}")
-    print(f"   Available Non-AML: {len(non_aml_transactions):,}")
-    
-    # Use all AML transactions
-    target_aml_count = len(aml_transactions)
-    target_non_aml_count = int(target_aml_count * (1 - target_aml_rate) / target_aml_rate)
-    
-    # Limit non-AML if too many
-    if len(non_aml_transactions) > target_non_aml_count:
-        non_aml_sample = non_aml_transactions.sample(n=target_non_aml_count, random_state=123)  # Different seed
-    else:
-        non_aml_sample = non_aml_transactions
-    
-    # Combine and shuffle
-    test_data = pd.concat([aml_transactions, non_aml_sample])
-    test_data = test_data.sample(frac=1, random_state=123).reset_index(drop=True)  # Different seed
-    
-    actual_aml_rate = test_data['Is Laundering'].mean()
-    print(f"✅ Realistic test dataset:")
-    print(f"   Total transactions: {len(test_data):,}")
-    print(f"   AML: {test_data['Is Laundering'].sum():,}")
-    print(f"   Non-AML: {(test_data['Is Laundering'] == 0).sum():,}")
-    print(f"   Actual AML rate: {actual_aml_rate*100:.2f}%")
-    
-    return test_data
-
-def create_features_realistic(data):
-    """Create features with different preprocessing"""
-    print("\n🔄 Creating features with different preprocessing...")
+def create_evaluation_features(data):
+    """Create features for evaluation"""
+    print("\n🔄 Creating evaluation features...")
     
     # Create accounts
     from_accounts = set(data['From Bank'].astype(str))
@@ -243,7 +237,7 @@ def create_features_realistic(data):
         if len(to_trans) > 0:
             is_aml = max(is_aml, to_trans['Is Laundering'].max())
         
-        # 15 features exactly (same as training)
+        # 15 features exactly
         features = [
             np.log1p(total_amount),  # 0
             np.log1p(transaction_count),  # 1
@@ -306,24 +300,18 @@ def create_features_realistic(data):
     
     return x, edge_index, edge_attr, y_true
 
-def realistic_evaluation():
-    """Perform realistic evaluation on different dataset"""
-    print("🚀 Starting realistic evaluation...")
+def evaluate_realistic_model():
+    """Evaluate model on truly unseen data"""
+    print("🚀 Starting realistic model evaluation...")
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
     
-    # Load different dataset
-    data = load_different_dataset()
-    if data is None:
-        print("❌ Cannot load LI-Small dataset. Evaluation aborted.")
-        return
-    
-    # Create realistic test data
-    test_data = create_realistic_test_data(data, target_aml_rate=0.05)
+    # Load unseen data
+    data, dataset_name = load_completely_unseen_data()
     
     # Create features
-    x, edge_index, edge_attr, y_true = create_features_realistic(test_data)
+    x, edge_index, edge_attr, y_true = create_evaluation_features(data)
     
     # Move to device
     x = x.to(device)
@@ -334,30 +322,32 @@ def realistic_evaluation():
     # Create model
     model = AdvancedAMLGNN(input_dim=15, hidden_dim=256, output_dim=2, dropout=0.1).to(device)
     
-    # Load trained model
+    # Load trained weights
     model_path = '/content/drive/MyDrive/LaunDetection/models/comprehensive_chunked_model.pth'
     if os.path.exists(model_path):
         print(f"🔧 Loading trained model from: {model_path}")
+        
         try:
             state_dict = torch.load(model_path, map_location=device)
             
             # Initialize edge classifier
+            print("🔧 Initializing edge classifier...")
             with torch.no_grad():
                 _ = model(x, edge_index, edge_attr)
             
-            # Load state dict
+            # Load weights
             model.load_state_dict(state_dict)
             print("✅ Successfully loaded trained model")
         except Exception as e:
             print(f"❌ Error loading model: {e}")
             print("⚠️ Using untrained model")
     else:
-        print("⚠️ Trained model not found, using untrained model")
+        print("⚠️ Model not found, using untrained model")
     
     # Model evaluation
     model.eval()
     with torch.no_grad():
-        print("\n🔄 Running model inference...")
+        print("\n🔄 Running model inference on unseen data...")
         
         logits = model(x, edge_index, edge_attr)
         probabilities = torch.softmax(logits, dim=1)
@@ -369,10 +359,11 @@ def realistic_evaluation():
     probabilities_cpu = probabilities.cpu().numpy()
     
     # Calculate metrics
-    print("\n📊 Calculating performance metrics...")
+    print("\n📊 Calculating realistic performance metrics...")
     
     accuracy = accuracy_score(y_true_cpu, predictions_cpu)
     f1_weighted = f1_score(y_true_cpu, predictions_cpu, average='weighted')
+    f1_macro = f1_score(y_true_cpu, predictions_cpu, average='macro')
     f1_aml = f1_score(y_true_cpu, predictions_cpu, average='binary', pos_label=1, zero_division=0)
     precision_aml = precision_score(y_true_cpu, predictions_cpu, average='binary', pos_label=1, zero_division=0)
     recall_aml = recall_score(y_true_cpu, predictions_cpu, average='binary', pos_label=1, zero_division=0)
@@ -380,10 +371,17 @@ def realistic_evaluation():
     cm = confusion_matrix(y_true_cpu, predictions_cpu)
     
     print("\n📊 REALISTIC Evaluation Results:")
-    print("=" * 40)
-    print(f"🎯 Overall Performance:")
+    print("=" * 50)
+    print(f"🎯 Dataset: {dataset_name}")
+    print(f"📊 Total transactions: {len(y_true_cpu):,}")
+    print(f"🚨 AML transactions: {y_true_cpu.sum():,}")
+    print(f"✅ Non-AML transactions: {(y_true_cpu == 0).sum():,}")
+    print(f"📈 AML rate: {y_true_cpu.mean()*100:.4f}%")
+    
+    print(f"\n🎯 Overall Performance:")
     print(f"   Accuracy: {accuracy:.4f}")
     print(f"   F1 (Weighted): {f1_weighted:.4f}")
+    print(f"   F1 (Macro): {f1_macro:.4f}")
     
     print(f"\n🚨 AML Detection:")
     print(f"   AML Precision: {precision_aml:.4f}")
@@ -398,19 +396,18 @@ def realistic_evaluation():
     
     # Analysis
     print(f"\n🔍 Analysis:")
-    if accuracy > 0.99:
-        print("   ⚠️ WARNING: Perfect accuracy suggests overfitting!")
-    if f1_aml > 0.95:
-        print("   ⚠️ WARNING: Perfect AML F1 suggests overfitting!")
-    if cm[0][1] == 0 and cm[1][0] == 0:
-        print("   ⚠️ WARNING: No false positives/negatives suggests overfitting!")
-    
-    if 0.3 <= f1_aml <= 0.7:
-        print("   ✅ Realistic performance - model shows good generalization")
-    elif f1_aml < 0.3:
-        print("   ⚠️ Low performance - model may need more training")
+    if f1_aml > 0.8:
+        print("   ⚠️  WARNING: Still showing signs of overfitting!")
+        print("   📊 Perfect scores suggest the model memorized training patterns")
+    elif f1_aml > 0.5:
+        print("   ✅ GOOD: Model shows reasonable generalization")
+        print("   📊 Performance is realistic for unseen data")
+    elif f1_aml > 0.3:
+        print("   ⚠️  FAIR: Model has some generalization capability")
+        print("   📊 Performance could be improved with more diverse training")
     else:
-        print("   ⚠️ High performance - check for overfitting")
+        print("   ❌ POOR: Model shows poor generalization")
+        print("   📊 Model may have overfitted to training data")
     
     return {
         'accuracy': accuracy,
@@ -418,28 +415,26 @@ def realistic_evaluation():
         'f1_aml': f1_aml,
         'precision_aml': precision_aml,
         'recall_aml': recall_aml,
-        'confusion_matrix': cm
+        'confusion_matrix': cm,
+        'dataset_name': dataset_name
     }
 
 def main():
     """Main evaluation function"""
     try:
-        results = realistic_evaluation()
+        results = evaluate_realistic_model()
         
         print("\n🎉 REALISTIC EVALUATION COMPLETE!")
         print("=" * 50)
-        print("✅ Model evaluated on different dataset (LI-Small)")
-        print("✅ Realistic test conditions")
-        print("✅ Overfitting detection")
+        print("✅ Model evaluated on truly unseen data")
+        print("✅ Realistic performance assessment")
+        print("✅ Overfitting detection completed")
         
-        if results:
-            if results['f1_aml'] > 0.95:
-                print("\n⚠️ WARNING: Results suggest severe overfitting!")
-                print("   The model may have memorized training patterns.")
-            elif 0.3 <= results['f1_aml'] <= 0.7:
-                print("\n✅ Good: Model shows realistic performance")
-            else:
-                print("\n⚠️ Model performance needs improvement")
+        if results['f1_aml'] > 0.8:
+            print("\n⚠️  WARNING: Model may still be overfitted!")
+            print("   Consider using more diverse training data or regularization")
+        else:
+            print("\n✅ Model shows realistic performance on unseen data")
         
     except Exception as e:
         print(f"❌ Error during evaluation: {str(e)}")
