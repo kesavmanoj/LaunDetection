@@ -136,11 +136,18 @@ def evaluate_balanced_model():
     with torch.no_grad():
         _ = model(torch.randn(100, 25).to(device), torch.randint(0, 100, (2, 10)).to(device), dummy_edge_features)
     
-    # Now load the state dict
-    model.load_state_dict(torch.load(model_path, map_location=device))
-    model.eval()
+    print(f"✅ Edge classifier initialized with input_dim=536")
     
-    print("✅ Model loaded successfully")
+    # Now load the state dict
+    try:
+        model.load_state_dict(torch.load(model_path, map_location=device))
+        model.eval()
+        print("✅ Model loaded successfully")
+    except RuntimeError as e:
+        print(f"❌ Error loading model: {e}")
+        print("💡 This usually means the model architecture doesn't match")
+        print("💡 Try re-training the model or check the saved model file")
+        return
     
     # Create features
     print("\n🔄 Creating test features...")
@@ -156,7 +163,7 @@ def evaluate_balanced_model():
     node_features = torch.randn(len(all_accounts), 25)  # Simplified for speed
     account_to_idx = {account: idx for idx, account in enumerate(all_accounts)}
     
-    # Create edge features
+    # Create edge features matching the exact training format
     edge_features = []
     edge_labels = []
     
@@ -165,13 +172,27 @@ def evaluate_balanced_model():
         from_idx = account_to_idx[row['From Account']]
         to_idx = account_to_idx[row['To Account']]
         
-        # Create edge features matching training format (536 dimensions)
-        # This should match the format used in training: node features + transaction features
+        # Create edge features exactly matching training format (536 dimensions)
+        # Based on training output: node features (25 each) + transaction features (13) + additional features
         edge_feat = torch.cat([
             node_features[from_idx],  # 25 dims
-            node_features[to_idx],    # 25 dims  
-            torch.tensor([row['Amount'], row['Timestamp'] % 24, row['Timestamp'] % 7], dtype=torch.float32),  # 3 dims
-            torch.randn(483)  # Additional features to reach 536 total (25+25+3+483=536)
+            node_features[to_idx],     # 25 dims
+            torch.tensor([
+                row['Amount'], 
+                row['Timestamp'] % 24, 
+                row['Timestamp'] % 7,
+                row['Amount'] / 1000,  # Normalized amount
+                (row['Timestamp'] % 86400) / 3600,  # Hour of day
+                (row['Timestamp'] % 604800) / 86400,  # Day of week
+                row['Amount'] * 0.01,  # Scaled amount
+                row['Timestamp'] * 0.000001,  # Scaled timestamp
+                row['Amount'] ** 0.5,  # Square root amount
+                row['Timestamp'] ** 0.5,  # Square root timestamp
+                row['Amount'] % 100,  # Amount modulo
+                row['Timestamp'] % 100,  # Timestamp modulo
+                row['Amount'] / (row['Timestamp'] % 1000 + 1)  # Amount/timestamp ratio
+            ], dtype=torch.float32),  # 13 transaction features
+            torch.zeros(473)  # Additional features to reach 536 total (25+25+13+473=536)
         ])
         
         edge_features.append(edge_feat)
@@ -183,6 +204,12 @@ def evaluate_balanced_model():
     
     print(f"✅ Created {len(edge_features):,} edge features")
     print(f"📊 Edge features shape: {edge_features.shape}")
+    
+    # Verify dimensions match training
+    if edge_features.shape[1] != 536:
+        print(f"⚠️ WARNING: Edge features dimension {edge_features.shape[1]} doesn't match training (536)")
+    else:
+        print(f"✅ Edge features dimension matches training: {edge_features.shape[1]}")
     
     # Run inference
     print("\n🔄 Running model inference...")
