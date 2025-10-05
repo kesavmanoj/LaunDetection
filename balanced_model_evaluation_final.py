@@ -214,39 +214,61 @@ def load_production_model_and_balanced_data():
         dropout=0.4
     ).to(device)
     
-    # Load trained weights
-    model_path = '/content/drive/MyDrive/LaunDetection/production_model.pth'
-    if os.path.exists(model_path):
-        print("🔧 Loading trained model weights...")
+    # Check for available trained models
+    models_dir = '/content/drive/MyDrive/LaunDetection/models'
+    possible_models = [
+        '/content/drive/MyDrive/LaunDetection/models/advanced_aml_model.pth',
+        '/content/drive/MyDrive/LaunDetection/models/production_model.pth',
+        '/content/drive/MyDrive/LaunDetection/production_model.pth'
+    ]
+    
+    model_path = None
+    for path in possible_models:
+        if os.path.exists(path):
+            model_path = path
+            break
+    
+    if model_path:
+        print(f"🔧 Loading trained model from: {model_path}")
         
-        state_dict = torch.load(model_path, map_location=device)
-        
-        # Check edge classifier dimensions
-        edge_classifier_keys = [k for k in state_dict.keys() if 'edge_classifier' in k]
-        
-        if edge_classifier_keys:
-            first_layer_weight = state_dict['edge_classifier.0.weight']
-            expected_input_dim = first_layer_weight.shape[1]
-            print(f"   Expected edge classifier input dimension: {expected_input_dim}")
+        try:
+            state_dict = torch.load(model_path, map_location=device)
             
-            # Initialize edge classifier with expected dimensions
-            model.edge_classifier = nn.Sequential(
-                nn.Linear(expected_input_dim, model.hidden_dim),
-                nn.ReLU(),
-                nn.Dropout(model.dropout_rate),
-                nn.Linear(model.hidden_dim, model.hidden_dim // 2),
-                nn.ReLU(),
-                nn.Dropout(model.dropout_rate),
-                nn.Linear(model.hidden_dim // 2, model.output_dim)
-            ).to(device)
+            # Check edge classifier dimensions
+            edge_classifier_keys = [k for k in state_dict.keys() if 'edge_classifier' in k]
             
-            # Load full state dict
-            model.load_state_dict(state_dict)
-            print("✅ Successfully loaded trained production model")
-        else:
-            print("⚠️ No edge classifier found in saved model")
+            if edge_classifier_keys:
+                first_layer_weight = state_dict['edge_classifier.0.weight']
+                expected_input_dim = first_layer_weight.shape[1]
+                print(f"   Expected edge classifier input dimension: {expected_input_dim}")
+                
+                # Initialize edge classifier with expected dimensions
+                model.edge_classifier = nn.Sequential(
+                    nn.Linear(expected_input_dim, model.hidden_dim),
+                    nn.ReLU(),
+                    nn.Dropout(model.dropout_rate),
+                    nn.Linear(model.hidden_dim, model.hidden_dim // 2),
+                    nn.ReLU(),
+                    nn.Dropout(model.dropout_rate),
+                    nn.Linear(model.hidden_dim // 2, model.output_dim)
+                ).to(device)
+                
+                # Load full state dict
+                model.load_state_dict(state_dict)
+                print("✅ Successfully loaded trained model")
+            else:
+                print("⚠️ No edge classifier found in saved model")
+        except Exception as e:
+            print(f"❌ Error loading model: {e}")
+            print("⚠️ Using untrained model")
     else:
-        print("⚠️ Production model not found, using untrained model")
+        print("⚠️ No trained model found, using untrained model")
+        print("   Available paths checked:")
+        for path in possible_models:
+            print(f"     - {path}")
+        print("\n💡 To train a model, run one of these scripts:")
+        print("   - !python advanced_aml_detection.py")
+        print("   - !python multi_dataset_training.py")
     
     return model, test_data, device
 
