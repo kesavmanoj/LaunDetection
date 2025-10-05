@@ -133,10 +133,11 @@ def evaluate_balanced_model():
     # Create dummy edge features to initialize edge_classifier
     print("🔧 Initializing edge classifier...")
     dummy_edge_features = torch.randn(10, 536).to(device)  # 536 is the actual edge feature dim from training
+    dummy_edge_attr = torch.randn(10, 512).to(device)     # 512 is the edge_attr dimension
     with torch.no_grad():
-        _ = model(torch.randn(100, 25).to(device), torch.randint(0, 100, (2, 10)).to(device), dummy_edge_features)
+        _ = model(torch.randn(100, 25).to(device), torch.randint(0, 100, (2, 10)).to(device), dummy_edge_features, dummy_edge_attr)
     
-    print(f"✅ Edge classifier initialized with input_dim=536")
+    print(f"✅ Edge classifier initialized with input_dim=1048 (536 edge_features + 512 edge_attr)")
     
     # Now load the state dict
     try:
@@ -245,8 +246,11 @@ def evaluate_balanced_model():
         # Create dummy edge index (simplified)
         edge_index = torch.randint(0, len(all_accounts), (2, len(test_data)), device=device)
         
+        # Create edge_attr (512 dimensions to match training)
+        edge_attr = torch.randn(len(test_data), 512).to(device)
+        
         # Get predictions
-        predictions = model(node_features.to(device), edge_index, edge_features)
+        predictions = model(node_features.to(device), edge_index, edge_features, edge_attr)
         predicted_probs = F.softmax(predictions, dim=1)
         predicted_classes = torch.argmax(predicted_probs, dim=1)
     
