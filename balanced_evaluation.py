@@ -121,8 +121,13 @@ def evaluate_balanced_model():
                     print(f"   📄 {file}")
         return
     
-    # Initialize model
-    model = AdvancedAMLGNN(input_dim=25, hidden_dim=128, output_dim=64, num_classes=2)
+    # Initialize model with same parameters as training
+    model = AdvancedAMLGNN(
+        input_dim=25,
+        hidden_dim=256,  # Match training parameters
+        output_dim=2,
+        dropout=0.1
+    )
     model.load_state_dict(torch.load(model_path, map_location=device))
     model.to(device)
     model.eval()
