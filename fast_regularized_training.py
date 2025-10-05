@@ -121,52 +121,75 @@ class RegularizedAMLGNN(nn.Module):
         return edge_output
 
 def load_fast_data():
-    """Load data quickly with limited size"""
-    print("📊 Loading fast data (optimized for speed)...")
+    """Load data from multiple datasets to maximize AML transactions"""
+    print("📊 Loading data from multiple datasets to maximize AML...")
     
     data_path = "/content/drive/MyDrive/LaunDetection/data/raw"
-    file_path = os.path.join(data_path, 'HI-Small_Trans.csv')
+    datasets = ['HI-Small', 'LI-Small', 'HI-Medium', 'LI-Medium']
     
-    if not os.path.exists(file_path):
-        print("❌ HI-Small dataset not found!")
+    all_data = []
+    total_aml = 0
+    
+    for dataset in datasets:
+        file_path = os.path.join(data_path, f'{dataset}_Trans.csv')
+        
+        if not os.path.exists(file_path):
+            print(f"   ❌ {dataset} not found")
+            continue
+        
+        print(f"   📁 Loading {dataset} dataset...")
+        
+        # Load with chunking for speed
+        chunk_size = 500000  # 500K rows at a time
+        max_chunks = 4  # Max 2M rows per dataset
+        chunks = []
+        
+        for i, chunk in enumerate(pd.read_csv(file_path, chunksize=chunk_size)):
+            if i >= max_chunks:
+                break
+            chunks.append(chunk)
+            print(f"      📁 Loaded chunk {i+1} ({len(chunk):,} rows)")
+        
+        if chunks:
+            data = pd.concat(chunks, ignore_index=True)
+            print(f"      📁 Total loaded: {len(data):,} transactions")
+            
+            # Clean data
+            data = data.dropna()
+            data = data[data['Amount Received'] > 0]
+            data = data[~np.isinf(data['Amount Received'])]
+            
+            aml_count = data['Is Laundering'].sum()
+            print(f"      ✅ {dataset}: {len(data):,} transactions, {aml_count:,} AML")
+            
+            if aml_count > 0:
+                all_data.append(data)
+                total_aml += aml_count
+            else:
+                print(f"      ⚠️ {dataset} has no AML transactions, skipping...")
+    
+    if not all_data:
+        print("❌ No datasets with AML transactions found!")
         return None
     
-    print("   📁 Loading HI-Small dataset (limited for speed)...")
+    # Combine all data
+    combined_data = pd.concat(all_data, ignore_index=True)
+    combined_data = combined_data.sample(frac=1, random_state=42).reset_index(drop=True)
     
-    # Load limited data for speed
-    chunk_size = 1000000  # 1M rows at a time
-    max_chunks = 2  # Max 2M rows for speed
-    chunks = []
+    print(f"\n✅ Combined dataset: {len(combined_data):,} transactions")
+    print(f"   AML: {combined_data['Is Laundering'].sum():,}")
+    print(f"   Non-AML: {(combined_data['Is Laundering'] == 0).sum():,}")
+    print(f"   AML rate: {combined_data['Is Laundering'].mean()*100:.2f}%")
     
-    for i, chunk in enumerate(pd.read_csv(file_path, chunksize=chunk_size)):
-        if i >= max_chunks:
-            break
-        chunks.append(chunk)
-        print(f"   📁 Loaded chunk {i+1} ({len(chunk):,} rows)")
-    
-    data = pd.concat(chunks, ignore_index=True)
-    print(f"   📁 Total loaded: {len(data):,} transactions")
-    
-    # Clean data
-    print("   🔄 Cleaning data...")
-    data = data.dropna()
-    data = data[data['Amount Received'] > 0]
-    data = data[~np.isinf(data['Amount Received'])]
-    
-    print(f"✅ Data: {len(data):,} transactions")
-    print(f"   AML: {data['Is Laundering'].sum():,}")
-    print(f"   Non-AML: {(data['Is Laundering'] == 0).sum():,}")
-    print(f"   AML rate: {data['Is Laundering'].mean()*100:.2f}%")
-    
-    # Create 10% AML rate dataset
-    print(f"\n🔄 Creating 10% AML rate dataset...")
-    aml_transactions = data[data['Is Laundering'] == 1]
-    non_aml_transactions = data[data['Is Laundering'] == 0]
+    # Create 10% AML rate dataset with maximum AML transactions
+    print(f"\n🔄 Creating 10% AML rate dataset with maximum AML...")
+    aml_transactions = combined_data[combined_data['Is Laundering'] == 1]
+    non_aml_transactions = combined_data[combined_data['Is Laundering'] == 0]
     
     print(f"   Available AML: {len(aml_transactions):,}")
     print(f"   Available Non-AML: {len(non_aml_transactions):,}")
     
-    # Use all AML transactions
+    # Use ALL AML transactions to maximize learning
     target_aml_count = len(aml_transactions)
     target_non_aml_count = int(target_aml_count * 9)  # 10% AML rate (1:9 ratio)
     
