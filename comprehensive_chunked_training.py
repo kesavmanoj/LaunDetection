@@ -155,12 +155,12 @@ def load_all_datasets_chunked():
     data_path = "/content/drive/MyDrive/LaunDetection/data/raw"
     datasets = {}
     
-    # Define datasets to load with more generous limits
+    # Define datasets to load with much more generous limits
     dataset_configs = {
-        'HI-Small': {'max_chunks': 40, 'chunk_size': 100000, 'max_aml': 15000},
-        'LI-Small': {'max_chunks': 30, 'chunk_size': 100000, 'max_aml': 8000},
-        'HI-Medium': {'max_chunks': 20, 'chunk_size': 100000, 'max_aml': 5000},
-        'LI-Medium': {'max_chunks': 15, 'chunk_size': 100000, 'max_aml': 3000}
+        'HI-Small': {'max_chunks': 50, 'chunk_size': 200000, 'max_aml': 20000},
+        'LI-Small': {'max_chunks': 40, 'chunk_size': 200000, 'max_aml': 15000},
+        'HI-Medium': {'max_chunks': 30, 'chunk_size': 200000, 'max_aml': 10000},
+        'LI-Medium': {'max_chunks': 25, 'chunk_size': 200000, 'max_aml': 8000}
     }
     
     for dataset_name, config in dataset_configs.items():
@@ -202,8 +202,8 @@ def load_all_datasets_chunked():
                         all_aml.append(aml_chunk)
                         aml_loaded += len(aml_chunk)
                     
-                    # Add non-AML transactions (more generous limit)
-                    max_non_aml_per_chunk = 20000  # 20K non-AML per chunk
+                    # Add non-AML transactions (much more generous limit)
+                    max_non_aml_per_chunk = 50000  # 50K non-AML per chunk (increased from 20K)
                     if len(non_aml_chunk) > max_non_aml_per_chunk:
                         non_aml_chunk = non_aml_chunk.sample(n=max_non_aml_per_chunk, random_state=42)
                     all_non_aml.append(non_aml_chunk)
@@ -233,8 +233,8 @@ def load_all_datasets_chunked():
                     print(f"   ❌ No non-AML transactions found in {dataset_name}")
                     continue
                 
-                # Limit non-AML to reasonable amount
-                max_non_aml_total = min(100000, len(combined_non_aml))  # 100K max non-AML
+                # Limit non-AML to reasonable amount (much higher limit)
+                max_non_aml_total = min(500000, len(combined_non_aml))  # 500K max non-AML (increased from 100K)
                 if len(combined_non_aml) > max_non_aml_total:
                     combined_non_aml = combined_non_aml.sample(n=max_non_aml_total, random_state=42)
                 
@@ -290,9 +290,10 @@ def create_combined_training_data(datasets, target_aml_rate=0.10):
     target_aml_count = len(combined_aml)
     target_non_aml_count = int(target_aml_count * (1 - target_aml_rate) / target_aml_rate)
     
-    # Limit non-AML if too many
-    if len(combined_non_aml) > target_non_aml_count:
-        combined_non_aml = combined_non_aml.sample(n=target_non_aml_count, random_state=42)
+    # Limit non-AML if too many (but allow much more data)
+    max_allowed_non_aml = min(target_non_aml_count * 2, len(combined_non_aml))  # Allow up to 2x target
+    if len(combined_non_aml) > max_allowed_non_aml:
+        combined_non_aml = combined_non_aml.sample(n=max_allowed_non_aml, random_state=42)
     
     # Combine and shuffle
     training_data = pd.concat([combined_aml, combined_non_aml])
