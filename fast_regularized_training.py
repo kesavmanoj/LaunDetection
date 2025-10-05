@@ -158,7 +158,35 @@ def load_fast_data():
     print(f"   Non-AML: {(data['Is Laundering'] == 0).sum():,}")
     print(f"   AML rate: {data['Is Laundering'].mean()*100:.2f}%")
     
-    return data
+    # Create 10% AML rate dataset
+    print(f"\n🔄 Creating 10% AML rate dataset...")
+    aml_transactions = data[data['Is Laundering'] == 1]
+    non_aml_transactions = data[data['Is Laundering'] == 0]
+    
+    print(f"   Available AML: {len(aml_transactions):,}")
+    print(f"   Available Non-AML: {len(non_aml_transactions):,}")
+    
+    # Use all AML transactions
+    target_aml_count = len(aml_transactions)
+    target_non_aml_count = int(target_aml_count * 9)  # 10% AML rate (1:9 ratio)
+    
+    # Limit non-AML if too many
+    if len(non_aml_transactions) > target_non_aml_count:
+        non_aml_sample = non_aml_transactions.sample(n=target_non_aml_count, random_state=42)
+    else:
+        non_aml_sample = non_aml_transactions
+    
+    # Combine and shuffle
+    balanced_data = pd.concat([aml_transactions, non_aml_sample])
+    balanced_data = balanced_data.sample(frac=1, random_state=42).reset_index(drop=True)
+    
+    actual_aml_rate = balanced_data['Is Laundering'].mean()
+    print(f"✅ Balanced dataset: {len(balanced_data):,} transactions")
+    print(f"   AML: {balanced_data['Is Laundering'].sum():,}")
+    print(f"   Non-AML: {(balanced_data['Is Laundering'] == 0).sum():,}")
+    print(f"   Actual AML rate: {actual_aml_rate*100:.2f}%")
+    
+    return balanced_data
 
 def create_fast_features(data):
     """Create features using vectorized operations"""
@@ -349,8 +377,8 @@ def train_fast_model(train_data, val_data, epochs=50):
     val_edge_attr = val_data['edge_attr'].to(device)
     val_y = val_data['y'].to(device)
     
-    # Create model
-    model = RegularizedAMLGNN(input_dim=15, hidden_dim=64, output_dim=2, dropout=0.5).to(device)
+    # Create model with moderate dropout for better learning
+    model = RegularizedAMLGNN(input_dim=15, hidden_dim=64, output_dim=2, dropout=0.3).to(device)
     
     # Initialize edge classifier
     with torch.no_grad():
@@ -360,11 +388,11 @@ def train_fast_model(train_data, val_data, epochs=50):
     total_params = sum(p.numel() for p in model.parameters())
     print(f"   Model parameters: {total_params:,}")
     
-    # Optimizer with heavy weight decay
-    optimizer = torch.optim.AdamW(model.parameters(), lr=0.001, weight_decay=0.1)
+    # Optimizer with moderate weight decay for better learning
+    optimizer = torch.optim.AdamW(model.parameters(), lr=0.01, weight_decay=0.01)
     
-    # Loss with class weights
-    class_weights = torch.tensor([1.0, 5.0]).to(device)  # Moderate class weights
+    # Loss with balanced class weights for 10% AML rate
+    class_weights = torch.tensor([1.0, 1.0]).to(device)  # Balanced weights for 10% AML
     criterion = nn.CrossEntropyLoss(weight=class_weights)
     
     # Early stopping
