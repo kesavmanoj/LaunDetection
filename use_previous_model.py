@@ -210,11 +210,27 @@ def test_model_on_new_data():
         
         print(f"   📁 Loading {dataset} sample for testing...")
         
-        # Load larger sample to find AML transactions
+        # Load entire dataset to find AML transactions
         try:
-            data = pd.read_csv(file_path, nrows=50000)  # 50K rows for testing
+            print(f"   📁 Loading entire {dataset} dataset...")
+            
+            # Load with chunking for large datasets
+            chunk_size = 100000  # 100K rows at a time
+            max_chunks = 20  # Max 2M rows to prevent memory issues
+            chunks = []
+            
+            for i, chunk in enumerate(pd.read_csv(file_path, chunksize=chunk_size)):
+                if i >= max_chunks:
+                    print(f"   ⚠️ Reached memory limit, using {i} chunks")
+                    break
+                chunks.append(chunk)
+                print(f"   📁 Loaded chunk {i+1} ({len(chunk):,} rows)")
+            
+            data = pd.concat(chunks, ignore_index=True)
+            print(f"   📁 Total loaded: {len(data):,} transactions")
             
             # Clean data
+            print("   🔄 Cleaning data...")
             data = data.dropna()
             data = data[data['Amount Received'] > 0]
             data = data[~np.isinf(data['Amount Received'])]
@@ -254,6 +270,7 @@ def create_test_features(data):
     print(f"   Unique accounts: {len(account_list):,}")
     
     # Create node features (15 features)
+    print(f"   🔄 Creating features for {len(account_list):,} accounts...")
     x_list = []
     for acc in tqdm(account_list, desc="Creating node features"):
         from_trans = data[data['From Bank'].astype(str) == acc]
@@ -290,31 +307,37 @@ def create_test_features(data):
     print(f"   Node features shape: {x.shape}")
     
     # Create edges and edge features
+    print(f"   🔄 Creating features for {len(data):,} transactions...")
     edge_index_list = []
     edge_attr_list = []
     y_true_list = []
     
-    for _, transaction in tqdm(data.iterrows(), total=len(data), desc="Creating edge features"):
-        from_acc = str(transaction['From Bank'])
-        to_acc = str(transaction['To Bank'])
+    # Process in batches to manage memory
+    batch_size = 10000
+    for i in tqdm(range(0, len(data), batch_size), desc="Creating edge features"):
+        batch_data = data.iloc[i:i+batch_size]
         
-        if from_acc in node_to_int and to_acc in node_to_int:
-            edge_index_list.append([node_to_int[from_acc], node_to_int[to_acc]])
+        for _, transaction in batch_data.iterrows():
+            from_acc = str(transaction['From Bank'])
+            to_acc = str(transaction['To Bank'])
             
-            # Edge features (13 features)
-            amount = transaction['Amount Received']
-            is_aml = transaction['Is Laundering']
-            
-            edge_features = [
-                np.log1p(amount),  # 0
-                is_aml,  # 1
-                0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5  # 2-12: placeholder features
-            ]
-            
-            # Clean edge features
-            edge_features = [float(f) if not (np.isnan(f) or np.isinf(f)) else 0.0 for f in edge_features]
-            edge_attr_list.append(edge_features)
-            y_true_list.append(is_aml)
+            if from_acc in node_to_int and to_acc in node_to_int:
+                edge_index_list.append([node_to_int[from_acc], node_to_int[to_acc]])
+                
+                # Edge features (13 features)
+                amount = transaction['Amount Received']
+                is_aml = transaction['Is Laundering']
+                
+                edge_features = [
+                    np.log1p(amount),  # 0
+                    is_aml,  # 1
+                    0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5  # 2-12: placeholder features
+                ]
+                
+                # Clean edge features
+                edge_features = [float(f) if not (np.isnan(f) or np.isinf(f)) else 0.0 for f in edge_features]
+                edge_attr_list.append(edge_features)
+                y_true_list.append(is_aml)
     
     edge_index = torch.tensor(edge_index_list, dtype=torch.long).t().contiguous()
     edge_attr = torch.tensor(edge_attr_list, dtype=torch.float32)
