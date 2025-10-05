@@ -34,16 +34,11 @@ print("📊 AML Model Evaluation - BALANCED EVALUATION")
 print("=" * 50)
 
 class AdvancedAMLGNN(nn.Module):
-    """Advanced AML GNN model with flexible architecture (matches trained model)"""
-    def __init__(self, input_dim, hidden_dim=128, output_dim=2, dropout=0.1):
+    """Advanced AML GNN model with dual-branch architecture (matches comprehensive chunked model)"""
+    def __init__(self, input_dim, hidden_dim=256, output_dim=2, dropout=0.1):
         super(AdvancedAMLGNN, self).__init__()
         
-        # Flexible architecture (can be single or dual branch)
-        self.conv1 = GCNConv(input_dim, hidden_dim)
-        self.conv2 = GCNConv(hidden_dim, hidden_dim)
-        self.conv3 = GCNConv(hidden_dim, hidden_dim)
-        
-        # Optional dual branch (for compatibility)
+        # Dual-branch architecture (matches comprehensive chunked model exactly)
         self.conv1_branch1 = GCNConv(input_dim, hidden_dim)
         self.conv2_branch1 = GCNConv(hidden_dim, hidden_dim)
         self.conv3_branch1 = GCNConv(hidden_dim, hidden_dim)
@@ -251,10 +246,10 @@ def load_production_model_and_balanced_data():
     # Create balanced test data
     test_data = create_balanced_test_data(dataset_name='HI-Small', target_aml_rate=0.02, max_transactions=100000)
     
-    # Create model with flexible architecture (matches trained model)
+    # Create model with dual-branch architecture (matches comprehensive chunked model exactly)
     model = AdvancedAMLGNN(
         input_dim=15,
-        hidden_dim=256,  # Updated to match comprehensive chunked model
+        hidden_dim=256,
         output_dim=2,
         dropout=0.1
     ).to(device)
