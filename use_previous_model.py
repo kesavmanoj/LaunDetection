@@ -197,35 +197,47 @@ def test_model_on_new_data():
     """Test the model on new data to check if it works"""
     print("\n🧪 Testing model on new data...")
     
-    # Load a small sample of HI-Large for testing
+    # Try multiple datasets to find one with AML transactions
     data_path = "/content/drive/MyDrive/LaunDetection/data/raw"
-    file_path = os.path.join(data_path, 'HI-Large_Trans.csv')
+    datasets = ['HI-Small', 'LI-Small', 'HI-Medium', 'LI-Medium', 'HI-Large']
     
-    if not os.path.exists(file_path):
-        print("❌ HI-Large dataset not found for testing")
-        return None
+    for dataset in datasets:
+        file_path = os.path.join(data_path, f'{dataset}_Trans.csv')
+        
+        if not os.path.exists(file_path):
+            print(f"   ❌ {dataset} not found")
+            continue
+        
+        print(f"   📁 Loading {dataset} sample for testing...")
+        
+        # Load larger sample to find AML transactions
+        try:
+            data = pd.read_csv(file_path, nrows=50000)  # 50K rows for testing
+            
+            # Clean data
+            data = data.dropna()
+            data = data[data['Amount Received'] > 0]
+            data = data[~np.isinf(data['Amount Received'])]
+            
+            aml_count = data['Is Laundering'].sum()
+            print(f"   ✅ {dataset}: {len(data):,} transactions")
+            print(f"   AML: {aml_count:,}")
+            print(f"   Non-AML: {(data['Is Laundering'] == 0).sum():,}")
+            print(f"   AML rate: {data['Is Laundering'].mean()*100:.2f}%")
+            
+            # If we found AML transactions, use this dataset
+            if aml_count > 0:
+                print(f"   ✅ Using {dataset} for testing (has {aml_count} AML transactions)")
+                return data
+            else:
+                print(f"   ⚠️ {dataset} has no AML transactions, trying next...")
+                
+        except Exception as e:
+            print(f"   ❌ Error loading {dataset}: {e}")
+            continue
     
-    print("   📁 Loading HI-Large sample for testing...")
-    
-    # Load small sample
-    try:
-        data = pd.read_csv(file_path, nrows=10000)  # 10K rows for testing
-        
-        # Clean data
-        data = data.dropna()
-        data = data[data['Amount Received'] > 0]
-        data = data[~np.isinf(data['Amount Received'])]
-        
-        print(f"   ✅ Test data: {len(data):,} transactions")
-        print(f"   AML: {data['Is Laundering'].sum():,}")
-        print(f"   Non-AML: {(data['Is Laundering'] == 0).sum():,}")
-        print(f"   AML rate: {data['Is Laundering'].mean()*100:.2f}%")
-        
-        return data
-        
-    except Exception as e:
-        print(f"❌ Error loading test data: {e}")
-        return None
+    print("❌ No datasets with AML transactions found!")
+    return None
 
 def create_test_features(data):
     """Create features for testing"""
@@ -366,10 +378,18 @@ def evaluate_previous_model():
     print(f"   AML Recall: {recall_aml:.4f}")
     
     print(f"\n📈 Confusion Matrix:")
-    print(f"   True Negative: {cm[0][0]:,}")
-    print(f"   False Positive: {cm[0][1]:,}")
-    print(f"   False Negative: {cm[1][0]:,}")
-    print(f"   True Positive: {cm[1][1]:,}")
+    if cm.shape == (2, 2):
+        print(f"   True Negative: {cm[0][0]:,}")
+        print(f"   False Positive: {cm[0][1]:,}")
+        print(f"   False Negative: {cm[1][0]:,}")
+        print(f"   True Positive: {cm[1][1]:,}")
+    else:
+        print(f"   Confusion Matrix Shape: {cm.shape}")
+        print(f"   Matrix: {cm}")
+        if cm.shape == (1, 1):
+            print("   ⚠️ Only one class in predictions (all same class)")
+        else:
+            print("   ⚠️ Unexpected confusion matrix shape")
     
     # Analysis
     if accuracy > 0.99:
