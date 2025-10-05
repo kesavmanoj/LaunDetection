@@ -120,11 +120,12 @@ class AdvancedAMLGNN(nn.Module):
             
             edge_features = torch.cat([edge_features, edge_attr], dim=1)
         
-        # Dynamic edge classifier
+        # Dynamic edge classifier - match the saved model architecture
         if self.edge_classifier is None:
             actual_input_dim = edge_features.shape[1]
             print(f"   Creating edge classifier with input_dim={actual_input_dim}")
             
+            # Match the comprehensive_chunked_model architecture exactly
             self.edge_classifier = nn.Sequential(
                 nn.Linear(actual_input_dim, self.hidden_dim),
                 nn.ReLU(),
