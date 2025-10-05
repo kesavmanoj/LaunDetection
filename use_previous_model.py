@@ -215,8 +215,8 @@ def test_model_on_new_data():
             print(f"   📁 Loading entire {dataset} dataset...")
             
             # Load with chunking for large datasets
-            chunk_size = 100000  # 100K rows at a time
-            max_chunks = 20  # Max 2M rows to prevent memory issues
+            chunk_size = 800000  # 800K rows at a time (8x increase)
+            max_chunks = 20  # Max 16M rows to prevent memory issues
             chunks = []
             
             for i, chunk in enumerate(pd.read_csv(file_path, chunksize=chunk_size)):
@@ -241,10 +241,36 @@ def test_model_on_new_data():
             print(f"   Non-AML: {(data['Is Laundering'] == 0).sum():,}")
             print(f"   AML rate: {data['Is Laundering'].mean()*100:.2f}%")
             
-            # If we found AML transactions, use this dataset
+            # If we found AML transactions, create 5% AML rate dataset
             if aml_count > 0:
                 print(f"   ✅ Using {dataset} for testing (has {aml_count} AML transactions)")
-                return data
+                
+                # Create 5% AML rate evaluation dataset
+                print(f"   🔄 Creating 5% AML rate evaluation dataset...")
+                aml_transactions = data[data['Is Laundering'] == 1]
+                non_aml_transactions = data[data['Is Laundering'] == 0]
+                
+                # Use all AML transactions
+                target_aml_count = len(aml_transactions)
+                target_non_aml_count = int(target_aml_count * 19)  # 5% AML rate (1:19 ratio)
+                
+                # Limit non-AML if too many
+                if len(non_aml_transactions) > target_non_aml_count:
+                    non_aml_sample = non_aml_transactions.sample(n=target_non_aml_count, random_state=42)
+                else:
+                    non_aml_sample = non_aml_transactions
+                
+                # Combine and shuffle
+                eval_data = pd.concat([aml_transactions, non_aml_sample])
+                eval_data = eval_data.sample(frac=1, random_state=42).reset_index(drop=True)
+                
+                actual_aml_rate = eval_data['Is Laundering'].mean()
+                print(f"   ✅ Evaluation dataset: {len(eval_data):,} transactions")
+                print(f"   AML: {eval_data['Is Laundering'].sum():,}")
+                print(f"   Non-AML: {(eval_data['Is Laundering'] == 0).sum():,}")
+                print(f"   Actual AML rate: {actual_aml_rate*100:.2f}%")
+                
+                return eval_data
             else:
                 print(f"   ⚠️ {dataset} has no AML transactions, trying next...")
                 
@@ -313,7 +339,7 @@ def create_test_features(data):
     y_true_list = []
     
     # Process in batches to manage memory
-    batch_size = 10000
+    batch_size = 80000  # 8x increase to match chunk size
     for i in tqdm(range(0, len(data), batch_size), desc="Creating edge features"):
         batch_data = data.iloc[i:i+batch_size]
         
