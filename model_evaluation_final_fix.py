@@ -1124,8 +1124,10 @@ def create_comprehensive_comparison(all_results):
                  fontsize=16, fontweight='bold')
     
     # 1. F1 Scores comparison
+    num_datasets = len(comparison_df)
+    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728'][:num_datasets]
     bars1 = axes[0,0].bar(comparison_df['Dataset'], comparison_df['F1_Weighted'], 
-                          color=['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728'])
+                          color=colors)
     axes[0,0].set_title('F1 Score Comparison', fontweight='bold', fontsize=12)
     axes[0,0].set_ylabel('F1 Score')
     axes[0,0].tick_params(axis='x', rotation=45)
@@ -1138,7 +1140,7 @@ def create_comprehensive_comparison(all_results):
     
     # 2. ROC-AUC comparison
     bars2 = axes[0,1].bar(comparison_df['Dataset'], comparison_df['ROC_AUC'], 
-                          color=['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728'])
+                          color=colors)
     axes[0,1].set_title('ROC-AUC Comparison', fontweight='bold', fontsize=12)
     axes[0,1].set_ylabel('ROC-AUC')
     axes[0,1].tick_params(axis='x', rotation=45)
@@ -1151,7 +1153,7 @@ def create_comprehensive_comparison(all_results):
     
     # 3. AML Detection comparison
     bars3 = axes[0,2].bar(comparison_df['Dataset'], comparison_df['AML_F1'], 
-                          color=['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728'])
+                          color=colors)
     axes[0,2].set_title('AML F1-Score Comparison', fontweight='bold', fontsize=12)
     axes[0,2].set_ylabel('AML F1-Score')
     axes[0,2].tick_params(axis='x', rotation=45)
@@ -1164,22 +1166,26 @@ def create_comprehensive_comparison(all_results):
     
     # 4. Dataset size comparison
     axes[1,0].bar(comparison_df['Dataset'], comparison_df['Total_Transactions']/1000, 
-                  color=['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728'])
+                  color=colors)
     axes[1,0].set_title('Dataset Size (Thousands)', fontweight='bold', fontsize=12)
     axes[1,0].set_ylabel('Total Transactions (K)')
     axes[1,0].tick_params(axis='x', rotation=45)
     
     # 5. AML Cases comparison
     axes[1,1].bar(comparison_df['Dataset'], comparison_df['AML_Count']/1000, 
-                  color=['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728'])
+                  color=colors)
     axes[1,1].set_title('AML Cases (Thousands)', fontweight='bold', fontsize=12)
     axes[1,1].set_ylabel('AML Cases (K)')
     axes[1,1].tick_params(axis='x', rotation=45)
     
     # 6. Performance vs Dataset Size
+    # Create color array that matches the number of datasets
+    num_datasets = len(comparison_df)
+    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728'][:num_datasets]
+    
     scatter = axes[1,2].scatter(comparison_df['Total_Transactions']/1000, comparison_df['F1_Weighted'], 
                                s=comparison_df['AML_Count']/100, alpha=0.7, 
-                               c=['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728'])
+                               c=colors)
     axes[1,2].set_xlabel('Total Transactions (K)')
     axes[1,2].set_ylabel('F1 Score')
     axes[1,2].set_title('Performance vs Dataset Size', fontweight='bold', fontsize=12)
