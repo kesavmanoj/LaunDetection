@@ -163,37 +163,65 @@ def evaluate_balanced_model():
     node_features = torch.randn(len(all_accounts), 25)  # Simplified for speed
     account_to_idx = {account: idx for idx, account in enumerate(all_accounts)}
     
+    print(f"📊 Node features shape: {node_features.shape}")
+    print(f"📊 Expected node feature dimension: 25")
+    
     # Create edge features matching the exact training format
     edge_features = []
     edge_labels = []
     
     print(f"🔄 Processing {len(test_data):,} transactions...")
+    
+    # Test edge feature creation with first transaction
+    if len(test_data) > 0:
+        first_row = test_data.iloc[0]
+        test_from_idx = account_to_idx[first_row['From Account']]
+        test_to_idx = account_to_idx[first_row['To Account']]
+        
+        test_from_node = node_features[test_from_idx]
+        test_to_node = node_features[test_to_idx]
+        test_transaction = torch.tensor([first_row['Amount'], first_row['Timestamp'] % 24, first_row['Timestamp'] % 7] + [0] * 10, dtype=torch.float32)
+        test_additional = torch.zeros(473)
+        test_edge = torch.cat([test_from_node, test_to_node, test_transaction, test_additional])
+        
+        print(f"🧪 Test edge feature dimension: {len(test_edge)} (expected: 536)")
+        if len(test_edge) != 536:
+            print(f"❌ Edge feature dimension mismatch! Expected 536, got {len(test_edge)}")
+            return
+    
     for _, row in tqdm(test_data.iterrows(), total=len(test_data), desc="Creating edges"):
         from_idx = account_to_idx[row['From Account']]
         to_idx = account_to_idx[row['To Account']]
         
         # Create edge features exactly matching training format (536 dimensions)
         # Based on training output: node features (25 each) + transaction features (13) + additional features
-        edge_feat = torch.cat([
-            node_features[from_idx],  # 25 dims
-            node_features[to_idx],     # 25 dims
-            torch.tensor([
-                row['Amount'], 
-                row['Timestamp'] % 24, 
-                row['Timestamp'] % 7,
-                row['Amount'] / 1000,  # Normalized amount
-                (row['Timestamp'] % 86400) / 3600,  # Hour of day
-                (row['Timestamp'] % 604800) / 86400,  # Day of week
-                row['Amount'] * 0.01,  # Scaled amount
-                row['Timestamp'] * 0.000001,  # Scaled timestamp
-                row['Amount'] ** 0.5,  # Square root amount
-                row['Timestamp'] ** 0.5,  # Square root timestamp
-                row['Amount'] % 100,  # Amount modulo
-                row['Timestamp'] % 100,  # Timestamp modulo
-                row['Amount'] / (row['Timestamp'] % 1000 + 1)  # Amount/timestamp ratio
-            ], dtype=torch.float32),  # 13 transaction features
-            torch.zeros(473)  # Additional features to reach 536 total (25+25+13+473=536)
-        ])
+        from_node = node_features[from_idx]  # 25 dims
+        to_node = node_features[to_idx]     # 25 dims
+        transaction_features = torch.tensor([
+            row['Amount'], 
+            row['Timestamp'] % 24, 
+            row['Timestamp'] % 7,
+            row['Amount'] / 1000,  # Normalized amount
+            (row['Timestamp'] % 86400) / 3600,  # Hour of day
+            (row['Timestamp'] % 604800) / 86400,  # Day of week
+            row['Amount'] * 0.01,  # Scaled amount
+            row['Timestamp'] * 0.000001,  # Scaled timestamp
+            row['Amount'] ** 0.5,  # Square root amount
+            row['Timestamp'] ** 0.5,  # Square root timestamp
+            row['Amount'] % 100,  # Amount modulo
+            row['Timestamp'] % 100,  # Timestamp modulo
+            row['Amount'] / (row['Timestamp'] % 1000 + 1)  # Amount/timestamp ratio
+        ], dtype=torch.float32)  # 13 transaction features
+        
+        additional_features = torch.zeros(473)  # Additional features to reach 536 total
+        
+        edge_feat = torch.cat([from_node, to_node, transaction_features, additional_features])
+        
+        # Debug: verify dimensions
+        if len(edge_feat) != 536:
+            print(f"⚠️ WARNING: Edge feature dimension {len(edge_feat)} != 536")
+            print(f"   From node: {len(from_node)}, To node: {len(to_node)}")
+            print(f"   Transaction: {len(transaction_features)}, Additional: {len(additional_features)}")
         
         edge_features.append(edge_feat)
         edge_labels.append(row['Is Laundering'])
