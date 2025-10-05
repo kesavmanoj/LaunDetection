@@ -292,7 +292,7 @@ def train_regularized_model():
     optimizer = torch.optim.AdamW(model.parameters(), lr=0.001, weight_decay=0.01)
     
     # Learning rate scheduler for better convergence
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=5, verbose=True)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=5)
     
     # Class weights for imbalanced data
     aml_count = y_true.sum().item()
