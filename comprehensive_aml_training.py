@@ -18,7 +18,7 @@ from tqdm import tqdm
 import warnings
 warnings.filterwarnings('ignore')
 
-print("🚀 Comprehensive AML Training - All Datasets")
+print("🚀 Comprehensive AML Training - Small Datasets Only")
 print("=" * 50)
 
 class ComprehensiveAMLGNN(nn.Module):
@@ -148,18 +148,16 @@ class ComprehensiveAMLGNN(nn.Module):
         return edge_output
 
 def load_all_datasets():
-    """Load all available datasets"""
-    print("📊 Loading all available datasets...")
+    """Load small datasets only (to prevent memory issues)"""
+    print("📊 Loading small datasets only (HI-Small, LI-Small)...")
     
     data_path = "/content/drive/MyDrive/LaunDetection/data/raw"
     datasets = {}
     
-    # Define datasets to load
+    # Define datasets to load (only small datasets to prevent memory issues)
     dataset_configs = {
         'HI-Small': {'max_transactions': 2000000, 'max_aml': 10000},
-        'LI-Small': {'max_transactions': 1500000, 'max_aml': 5000},
-        'HI-Medium': {'max_transactions': 1000000, 'max_aml': 5000},
-        'LI-Medium': {'max_transactions': 1000000, 'max_aml': 3000}
+        'LI-Small': {'max_transactions': 1500000, 'max_aml': 5000}
     }
     
     for dataset_name, config in dataset_configs.items():
@@ -471,8 +469,8 @@ def main():
         if model_path:
             print("\n🎉 COMPREHENSIVE TRAINING COMPLETE!")
             print("=" * 50)
-            print("✅ Model trained on all datasets")
-            print("✅ HI-Small, LI-Small, HI-Medium, LI-Medium")
+            print("✅ Model trained on small datasets")
+            print("✅ HI-Small, LI-Small (medium datasets skipped for memory)")
             print("✅ Advanced loss function (Focal + Weighted)")
             print("✅ 15 input features (matches evaluation)")
             print("✅ Ready for balanced evaluation")
