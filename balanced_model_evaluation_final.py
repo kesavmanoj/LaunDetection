@@ -33,14 +33,19 @@ warnings.filterwarnings('ignore')
 print("📊 AML Model Evaluation - BALANCED EVALUATION")
 print("=" * 50)
 
-class ProductionEdgeLevelGNN(nn.Module):
-    """Production GNN model with exact dimension matching"""
-    def __init__(self, input_dim, hidden_dim=128, output_dim=2, dropout=0.4):
-        super(ProductionEdgeLevelGNN, self).__init__()
+class AdvancedAMLGNN(nn.Module):
+    """Advanced AML GNN model with dual-branch architecture (matches trained model)"""
+    def __init__(self, input_dim, hidden_dim=256, output_dim=2, dropout=0.1):
+        super(AdvancedAMLGNN, self).__init__()
         
-        self.conv1 = GCNConv(input_dim, hidden_dim)
-        self.conv2 = GCNConv(hidden_dim, hidden_dim)
-        self.conv3 = GCNConv(hidden_dim, hidden_dim)
+        # Dual-branch architecture (matches trained model)
+        self.conv1_branch1 = GCNConv(input_dim, hidden_dim)
+        self.conv2_branch1 = GCNConv(hidden_dim, hidden_dim)
+        self.conv3_branch1 = GCNConv(hidden_dim, hidden_dim)
+        
+        self.conv1_branch2 = GCNConv(input_dim, hidden_dim)
+        self.conv2_branch2 = GCNConv(hidden_dim, hidden_dim)
+        self.conv3_branch2 = GCNConv(hidden_dim, hidden_dim)
         
         self.bn1 = nn.BatchNorm1d(hidden_dim)
         self.bn2 = nn.BatchNorm1d(hidden_dim)
@@ -56,32 +61,59 @@ class ProductionEdgeLevelGNN(nn.Module):
         if torch.isnan(x).any():
             x = torch.nan_to_num(x, nan=0.0)
         
-        x = self.conv1(x, edge_index)
-        x = self.bn1(x)
-        x = F.relu(x)
-        x = self.dropout(x)
+        # Branch 1 processing
+        x1 = self.conv1_branch1(x, edge_index)
+        x1 = self.bn1(x1)
+        x1 = F.relu(x1)
+        x1 = self.dropout(x1)
         
-        if torch.isnan(x).any():
-            x = torch.nan_to_num(x, nan=0.0)
+        if torch.isnan(x1).any():
+            x1 = torch.nan_to_num(x1, nan=0.0)
         
-        x = self.conv2(x, edge_index)
-        x = self.bn2(x)
-        x = F.relu(x)
-        x = self.dropout(x)
+        x1 = self.conv2_branch1(x1, edge_index)
+        x1 = self.bn2(x1)
+        x1 = F.relu(x1)
+        x1 = self.dropout(x1)
         
-        if torch.isnan(x).any():
-            x = torch.nan_to_num(x, nan=0.0)
+        if torch.isnan(x1).any():
+            x1 = torch.nan_to_num(x1, nan=0.0)
         
-        x = self.conv3(x, edge_index)
-        x = self.bn3(x)
-        x = F.relu(x)
-        x = self.dropout(x)
+        x1 = self.conv3_branch1(x1, edge_index)
+        x1 = self.bn3(x1)
+        x1 = F.relu(x1)
+        x1 = self.dropout(x1)
         
-        if torch.isnan(x).any():
-            x = torch.nan_to_num(x, nan=0.0)
+        # Branch 2 processing
+        x2 = self.conv1_branch2(x, edge_index)
+        x2 = self.bn1(x2)
+        x2 = F.relu(x2)
+        x2 = self.dropout(x2)
         
-        src_features = x[edge_index[0]]
-        tgt_features = x[edge_index[1]]
+        if torch.isnan(x2).any():
+            x2 = torch.nan_to_num(x2, nan=0.0)
+        
+        x2 = self.conv2_branch2(x2, edge_index)
+        x2 = self.bn2(x2)
+        x2 = F.relu(x2)
+        x2 = self.dropout(x2)
+        
+        if torch.isnan(x2).any():
+            x2 = torch.nan_to_num(x2, nan=0.0)
+        
+        x2 = self.conv3_branch2(x2, edge_index)
+        x2 = self.bn3(x2)
+        x2 = F.relu(x2)
+        x2 = self.dropout(x2)
+        
+        # Combine branches
+        x_combined = x1 + x2  # Element-wise addition
+        
+        if torch.isnan(x_combined).any():
+            x_combined = torch.nan_to_num(x_combined, nan=0.0)
+        
+        # Create edge features
+        src_features = x_combined[edge_index[0]]
+        tgt_features = x_combined[edge_index[1]]
         
         if src_features.dim() == 1:
             src_features = src_features.unsqueeze(1)
@@ -105,16 +137,23 @@ class ProductionEdgeLevelGNN(nn.Module):
         # Check if edge classifier needs initialization
         if self.edge_classifier is None:
             actual_input_dim = edge_features.shape[1]
-            print(f"   Initializing edge classifier with input_dim={actual_input_dim}")
+            print(f"   Initializing advanced edge classifier with input_dim={actual_input_dim}")
             
+            # Advanced edge classifier (matches trained model)
             self.edge_classifier = nn.Sequential(
                 nn.Linear(actual_input_dim, self.hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(self.dropout_rate),
+                nn.Linear(self.hidden_dim, self.hidden_dim),
                 nn.ReLU(),
                 nn.Dropout(self.dropout_rate),
                 nn.Linear(self.hidden_dim, self.hidden_dim // 2),
                 nn.ReLU(),
                 nn.Dropout(self.dropout_rate),
-                nn.Linear(self.hidden_dim // 2, self.output_dim)
+                nn.Linear(self.hidden_dim // 2, self.hidden_dim // 4),
+                nn.ReLU(),
+                nn.Dropout(self.dropout_rate),
+                nn.Linear(self.hidden_dim // 4, self.output_dim)
             ).to(edge_features.device)
         
         # Check dimension compatibility
@@ -206,12 +245,12 @@ def load_production_model_and_balanced_data():
     # Create balanced test data
     test_data = create_balanced_test_data(dataset_name='HI-Small', target_aml_rate=0.02, max_transactions=100000)
     
-    # Create model
-    model = ProductionEdgeLevelGNN(
+    # Create model with correct architecture (matches trained model)
+    model = AdvancedAMLGNN(
         input_dim=15,
-        hidden_dim=128,
+        hidden_dim=256,
         output_dim=2,
-        dropout=0.4
+        dropout=0.1
     ).to(device)
     
     # Check for available trained models
@@ -242,15 +281,21 @@ def load_production_model_and_balanced_data():
                 expected_input_dim = first_layer_weight.shape[1]
                 print(f"   Expected edge classifier input dimension: {expected_input_dim}")
                 
-                # Initialize edge classifier with expected dimensions
+                # Initialize edge classifier with expected dimensions (matches trained model)
                 model.edge_classifier = nn.Sequential(
                     nn.Linear(expected_input_dim, model.hidden_dim),
+                    nn.ReLU(),
+                    nn.Dropout(model.dropout_rate),
+                    nn.Linear(model.hidden_dim, model.hidden_dim),
                     nn.ReLU(),
                     nn.Dropout(model.dropout_rate),
                     nn.Linear(model.hidden_dim, model.hidden_dim // 2),
                     nn.ReLU(),
                     nn.Dropout(model.dropout_rate),
-                    nn.Linear(model.hidden_dim // 2, model.output_dim)
+                    nn.Linear(model.hidden_dim // 2, model.hidden_dim // 4),
+                    nn.ReLU(),
+                    nn.Dropout(model.dropout_rate),
+                    nn.Linear(model.hidden_dim // 4, model.output_dim)
                 ).to(device)
                 
                 # Load full state dict
