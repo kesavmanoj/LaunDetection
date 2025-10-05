@@ -34,11 +34,16 @@ print("📊 AML Model Evaluation - BALANCED EVALUATION")
 print("=" * 50)
 
 class AdvancedAMLGNN(nn.Module):
-    """Advanced AML GNN model with dual-branch architecture (matches trained model)"""
-    def __init__(self, input_dim, hidden_dim=256, output_dim=2, dropout=0.1):
+    """Advanced AML GNN model with flexible architecture (matches trained model)"""
+    def __init__(self, input_dim, hidden_dim=128, output_dim=2, dropout=0.1):
         super(AdvancedAMLGNN, self).__init__()
         
-        # Dual-branch architecture (matches trained model)
+        # Flexible architecture (can be single or dual branch)
+        self.conv1 = GCNConv(input_dim, hidden_dim)
+        self.conv2 = GCNConv(hidden_dim, hidden_dim)
+        self.conv3 = GCNConv(hidden_dim, hidden_dim)
+        
+        # Optional dual branch (for compatibility)
         self.conv1_branch1 = GCNConv(input_dim, hidden_dim)
         self.conv2_branch1 = GCNConv(hidden_dim, hidden_dim)
         self.conv3_branch1 = GCNConv(hidden_dim, hidden_dim)
@@ -61,52 +66,77 @@ class AdvancedAMLGNN(nn.Module):
         if torch.isnan(x).any():
             x = torch.nan_to_num(x, nan=0.0)
         
-        # Branch 1 processing
-        x1 = self.conv1_branch1(x, edge_index)
-        x1 = self.bn1(x1)
-        x1 = F.relu(x1)
-        x1 = self.dropout(x1)
-        
-        if torch.isnan(x1).any():
-            x1 = torch.nan_to_num(x1, nan=0.0)
-        
-        x1 = self.conv2_branch1(x1, edge_index)
-        x1 = self.bn2(x1)
-        x1 = F.relu(x1)
-        x1 = self.dropout(x1)
-        
-        if torch.isnan(x1).any():
-            x1 = torch.nan_to_num(x1, nan=0.0)
-        
-        x1 = self.conv3_branch1(x1, edge_index)
-        x1 = self.bn3(x1)
-        x1 = F.relu(x1)
-        x1 = self.dropout(x1)
-        
-        # Branch 2 processing
-        x2 = self.conv1_branch2(x, edge_index)
-        x2 = self.bn1(x2)
-        x2 = F.relu(x2)
-        x2 = self.dropout(x2)
-        
-        if torch.isnan(x2).any():
-            x2 = torch.nan_to_num(x2, nan=0.0)
-        
-        x2 = self.conv2_branch2(x2, edge_index)
-        x2 = self.bn2(x2)
-        x2 = F.relu(x2)
-        x2 = self.dropout(x2)
-        
-        if torch.isnan(x2).any():
-            x2 = torch.nan_to_num(x2, nan=0.0)
-        
-        x2 = self.conv3_branch2(x2, edge_index)
-        x2 = self.bn3(x2)
-        x2 = F.relu(x2)
-        x2 = self.dropout(x2)
-        
-        # Combine branches
-        x_combined = x1 + x2  # Element-wise addition
+        # Try dual branch first (for advanced models)
+        try:
+            # Branch 1 processing
+            x1 = self.conv1_branch1(x, edge_index)
+            x1 = self.bn1(x1)
+            x1 = F.relu(x1)
+            x1 = self.dropout(x1)
+            
+            if torch.isnan(x1).any():
+                x1 = torch.nan_to_num(x1, nan=0.0)
+            
+            x1 = self.conv2_branch1(x1, edge_index)
+            x1 = self.bn2(x1)
+            x1 = F.relu(x1)
+            x1 = self.dropout(x1)
+            
+            if torch.isnan(x1).any():
+                x1 = torch.nan_to_num(x1, nan=0.0)
+            
+            x1 = self.conv3_branch1(x1, edge_index)
+            x1 = self.bn3(x1)
+            x1 = F.relu(x1)
+            x1 = self.dropout(x1)
+            
+            # Branch 2 processing
+            x2 = self.conv1_branch2(x, edge_index)
+            x2 = self.bn1(x2)
+            x2 = F.relu(x2)
+            x2 = self.dropout(x2)
+            
+            if torch.isnan(x2).any():
+                x2 = torch.nan_to_num(x2, nan=0.0)
+            
+            x2 = self.conv2_branch2(x2, edge_index)
+            x2 = self.bn2(x2)
+            x2 = F.relu(x2)
+            x2 = self.dropout(x2)
+            
+            if torch.isnan(x2).any():
+                x2 = torch.nan_to_num(x2, nan=0.0)
+            
+            x2 = self.conv3_branch2(x2, edge_index)
+            x2 = self.bn3(x2)
+            x2 = F.relu(x2)
+            x2 = self.dropout(x2)
+            
+            # Combine branches
+            x_combined = x1 + x2  # Element-wise addition
+            
+        except:
+            # Fallback to single branch (for memory-efficient models)
+            x_combined = self.conv1(x, edge_index)
+            x_combined = self.bn1(x_combined)
+            x_combined = F.relu(x_combined)
+            x_combined = self.dropout(x_combined)
+            
+            if torch.isnan(x_combined).any():
+                x_combined = torch.nan_to_num(x_combined, nan=0.0)
+            
+            x_combined = self.conv2(x_combined, edge_index)
+            x_combined = self.bn2(x_combined)
+            x_combined = F.relu(x_combined)
+            x_combined = self.dropout(x_combined)
+            
+            if torch.isnan(x_combined).any():
+                x_combined = torch.nan_to_num(x_combined, nan=0.0)
+            
+            x_combined = self.conv3(x_combined, edge_index)
+            x_combined = self.bn3(x_combined)
+            x_combined = F.relu(x_combined)
+            x_combined = self.dropout(x_combined)
         
         if torch.isnan(x_combined).any():
             x_combined = torch.nan_to_num(x_combined, nan=0.0)
@@ -245,10 +275,10 @@ def load_production_model_and_balanced_data():
     # Create balanced test data
     test_data = create_balanced_test_data(dataset_name='HI-Small', target_aml_rate=0.02, max_transactions=100000)
     
-    # Create model with correct architecture (matches trained model)
+    # Create model with flexible architecture (matches trained model)
     model = AdvancedAMLGNN(
         input_dim=15,
-        hidden_dim=256,
+        hidden_dim=128,  # Default to 128, will be adjusted based on loaded model
         output_dim=2,
         dropout=0.1
     ).to(device)
@@ -256,6 +286,7 @@ def load_production_model_and_balanced_data():
     # Check for available trained models
     models_dir = '/content/drive/MyDrive/LaunDetection/models'
     possible_models = [
+        '/content/drive/MyDrive/LaunDetection/models/memory_efficient_aml_model.pth',
         '/content/drive/MyDrive/LaunDetection/models/hi_medium_aml_model.pth',
         '/content/drive/MyDrive/LaunDetection/models/comprehensive_aml_model.pth',
         '/content/drive/MyDrive/LaunDetection/models/matching_aml_model.pth',
