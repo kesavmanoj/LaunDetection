@@ -552,16 +552,17 @@ AML Rate: {evaluation_results['y_true'].mean()*100:.2f}%
 def load_multiple_datasets():
     """Load multiple datasets with 5% AML rate and at least 100,000 AML cases"""
     print("📊 Loading multiple datasets for comprehensive evaluation...")
-    print("🎯 Target: 5% AML rate with at least 100,000 AML cases per dataset")
+    print("🎯 Target: 5% AML rate with all available AML cases per dataset")
     
     data_path = "/content/drive/MyDrive/LaunDetection/data/raw"
     datasets = {}
     
     dataset_configs = {
         'HI-Small': {'priority': 1},
-        'LI-Small': {'priority': 2}, 
-        'HI-Medium': {'priority': 3},
-        'LI-Medium': {'priority': 4}
+        'LI-Small': {'priority': 2}
+        # Temporarily disabled Medium datasets to avoid memory issues
+        # 'HI-Medium': {'priority': 3},
+        # 'LI-Medium': {'priority': 4}
     }
     
     for dataset_name, config in dataset_configs.items():
@@ -586,8 +587,8 @@ def load_multiple_datasets():
                 print(f"   AML transactions available: {len(aml_transactions):,}")
                 print(f"   Non-AML transactions available: {len(non_aml_transactions):,}")
                 
-                # Target: 5% AML rate with at least 100,000 AML cases
-                target_aml_count = max(100000, len(aml_transactions))  # At least 100K AML
+                # Target: 5% AML rate with available AML cases (realistic for small datasets)
+                target_aml_count = len(aml_transactions)  # Use all available AML
                 target_aml_rate = 0.05  # 5% AML rate
                 
                 # Calculate required non-AML count
@@ -1029,7 +1030,7 @@ def create_features_for_evaluation(transactions, device):
 def create_comprehensive_comparison(all_results):
     """Create comprehensive comparison across all datasets with large-scale data"""
     print("📊 Creating comprehensive comparison across all datasets...")
-    print("🎯 Analyzing performance across HI-Small, LI-Small, HI-Medium, LI-Medium datasets")
+    print("🎯 Analyzing performance across HI-Small, LI-Small datasets")
     
     # Create comparison DataFrame
     comparison_data = []
@@ -1222,8 +1223,8 @@ def generate_evaluation_report(all_results):
 def main():
     """Main evaluation pipeline for large-scale multi-dataset evaluation"""
     print("🚀 Starting LARGE-SCALE Multi-Dataset AML Model Evaluation...")
-    print("🎯 Target: 5% AML rate with 100,000+ AML cases per dataset")
-    print("📊 Datasets: HI-Small, LI-Small, HI-Medium, LI-Medium")
+    print("🎯 Target: 5% AML rate with all available AML cases per dataset")
+    print("📊 Datasets: HI-Small, LI-Small (Medium datasets disabled for memory)")
     
     try:
         # Perform comprehensive multi-dataset evaluation
@@ -1238,8 +1239,8 @@ def main():
         
         print("\n🎉 LARGE-SCALE EVALUATION COMPLETE!")
         print("=" * 60)
-        print("✅ Multi-dataset evaluation completed (HI-Small, LI-Small, HI-Medium, LI-Medium)")
-        print("✅ Large-scale data processing (100K+ AML cases per dataset)")
+        print("✅ Multi-dataset evaluation completed (HI-Small, LI-Small)")
+        print("✅ Large-scale data processing (all available AML cases per dataset)")
         print("✅ 5% AML rate maintained across all datasets")
         print("✅ Advanced metrics calculated")
         print("✅ Comprehensive visualizations created")
