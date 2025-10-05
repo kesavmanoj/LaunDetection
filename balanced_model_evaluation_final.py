@@ -143,7 +143,7 @@ class ProductionEdgeLevelGNN(nn.Module):
         
         return edge_output
 
-def create_balanced_test_data(dataset_name='HI-Small', target_aml_rate=0.10, max_transactions=100000):
+def create_balanced_test_data(dataset_name='HI-Small', target_aml_rate=0.02, max_transactions=100000):
     """Create balanced test data with specified AML rate"""
     print(f"🎯 Creating balanced test data ({target_aml_rate*100:.1f}% AML rate)...")
     
@@ -204,7 +204,7 @@ def load_production_model_and_balanced_data():
     print(f"Using device: {device}")
     
     # Create balanced test data
-    test_data = create_balanced_test_data(dataset_name='HI-Small', target_aml_rate=0.10, max_transactions=100000)
+    test_data = create_balanced_test_data(dataset_name='HI-Small', target_aml_rate=0.02, max_transactions=100000)
     
     # Create model
     model = ProductionEdgeLevelGNN(
@@ -444,7 +444,7 @@ def create_balanced_visualization(evaluation_results):
     
         # Create figure
         fig, axes = plt.subplots(2, 2, figsize=(15, 12))
-        fig.suptitle('🚀 AML Detection Model - BALANCED Evaluation Results (10% AML Rate)', fontsize=16, fontweight='bold')
+        fig.suptitle('🚀 AML Detection Model - BALANCED Evaluation Results (2% AML Rate)', fontsize=16, fontweight='bold')
         
         pbar.set_description("Creating confusion matrix")
         # 1. Confusion Matrix
@@ -539,7 +539,7 @@ def main():
         print("\n🎉 BALANCED EVALUATION COMPLETE!")
         print("=" * 50)
         print("✅ Model successfully evaluated on balanced data")
-        print("✅ 10% AML rate test completed")
+        print("✅ 2% AML rate test completed")
         print("✅ Fair performance assessment achieved")
         print("\n🚀 BALANCED EVALUATION SUCCESSFUL!")
         
