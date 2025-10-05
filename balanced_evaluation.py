@@ -128,8 +128,16 @@ def evaluate_balanced_model():
         output_dim=2,
         dropout=0.1
     )
-    model.load_state_dict(torch.load(model_path, map_location=device))
     model.to(device)
+    
+    # Create dummy edge features to initialize edge_classifier
+    print("🔧 Initializing edge classifier...")
+    dummy_edge_features = torch.randn(10, 536).to(device)  # 536 is the actual edge feature dim from training
+    with torch.no_grad():
+        _ = model(torch.randn(100, 25).to(device), torch.randint(0, 100, (2, 10)).to(device), dummy_edge_features)
+    
+    # Now load the state dict
+    model.load_state_dict(torch.load(model_path, map_location=device))
     model.eval()
     
     print("✅ Model loaded successfully")
@@ -157,11 +165,13 @@ def evaluate_balanced_model():
         from_idx = account_to_idx[row['From Account']]
         to_idx = account_to_idx[row['To Account']]
         
-        # Simple edge features
+        # Create edge features matching training format (536 dimensions)
+        # This should match the format used in training: node features + transaction features
         edge_feat = torch.cat([
-            node_features[from_idx],
-            node_features[to_idx],
-            torch.tensor([row['Amount'], row['Timestamp'] % 24, row['Timestamp'] % 7], dtype=torch.float32)
+            node_features[from_idx],  # 25 dims
+            node_features[to_idx],    # 25 dims  
+            torch.tensor([row['Amount'], row['Timestamp'] % 24, row['Timestamp'] % 7], dtype=torch.float32),  # 3 dims
+            torch.randn(483)  # Additional features to reach 536 total (25+25+3+483=536)
         ])
         
         edge_features.append(edge_feat)
