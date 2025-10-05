@@ -256,6 +256,7 @@ def load_production_model_and_balanced_data():
     # Check for available trained models
     models_dir = '/content/drive/MyDrive/LaunDetection/models'
     possible_models = [
+        '/content/drive/MyDrive/LaunDetection/models/comprehensive_aml_model.pth',
         '/content/drive/MyDrive/LaunDetection/models/matching_aml_model.pth',
         '/content/drive/MyDrive/LaunDetection/models/advanced_aml_model.pth',
         '/content/drive/MyDrive/LaunDetection/models/production_model.pth',
