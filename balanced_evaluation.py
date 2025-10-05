@@ -130,14 +130,15 @@ def evaluate_balanced_model():
     )
     model.to(device)
     
-    # Create dummy edge features to initialize edge_classifier
+    # Create dummy data to initialize edge_classifier
     print("🔧 Initializing edge classifier...")
-    dummy_edge_features = torch.randn(10, 536).to(device)  # 536 is the actual edge feature dim from training
-    dummy_edge_attr = torch.randn(10, 512).to(device)     # 512 is the edge_attr dimension
+    dummy_x = torch.randn(100, 25).to(device)  # Node features
+    dummy_edge_index = torch.randint(0, 100, (2, 10)).to(device)  # Edge connections
+    dummy_edge_attr = torch.randn(10, 512).to(device)  # Edge attributes
     with torch.no_grad():
-        _ = model(torch.randn(100, 25).to(device), torch.randint(0, 100, (2, 10)).to(device), dummy_edge_features, dummy_edge_attr)
+        _ = model(dummy_x, dummy_edge_index, dummy_edge_attr)
     
-    print(f"✅ Edge classifier initialized with input_dim=1048 (536 edge_features + 512 edge_attr)")
+    print(f"✅ Edge classifier initialized with input_dim=1048 (node features + edge_attr)")
     
     # Now load the state dict
     try:
@@ -167,90 +168,35 @@ def evaluate_balanced_model():
     print(f"📊 Node features shape: {node_features.shape}")
     print(f"📊 Expected node feature dimension: 25")
     
-    # Create edge features matching the exact training format
-    edge_features = []
+    # Create edge labels for evaluation
     edge_labels = []
     
     print(f"🔄 Processing {len(test_data):,} transactions...")
-    
-    # Test edge feature creation with first transaction
-    if len(test_data) > 0:
-        first_row = test_data.iloc[0]
-        test_from_idx = account_to_idx[first_row['From Account']]
-        test_to_idx = account_to_idx[first_row['To Account']]
-        
-        test_from_node = node_features[test_from_idx]
-        test_to_node = node_features[test_to_idx]
-        test_transaction = torch.tensor([first_row['Amount'], first_row['Timestamp'] % 24, first_row['Timestamp'] % 7] + [0] * 10, dtype=torch.float32)
-        test_additional = torch.zeros(473)
-        test_edge = torch.cat([test_from_node, test_to_node, test_transaction, test_additional])
-        
-        print(f"🧪 Test edge feature dimension: {len(test_edge)} (expected: 536)")
-        if len(test_edge) != 536:
-            print(f"❌ Edge feature dimension mismatch! Expected 536, got {len(test_edge)}")
-            return
-    
-    for _, row in tqdm(test_data.iterrows(), total=len(test_data), desc="Creating edges"):
-        from_idx = account_to_idx[row['From Account']]
-        to_idx = account_to_idx[row['To Account']]
-        
-        # Create edge features exactly matching training format (536 dimensions)
-        # Based on training output: node features (25 each) + transaction features (13) + additional features
-        from_node = node_features[from_idx]  # 25 dims
-        to_node = node_features[to_idx]     # 25 dims
-        transaction_features = torch.tensor([
-            row['Amount'], 
-            row['Timestamp'] % 24, 
-            row['Timestamp'] % 7,
-            row['Amount'] / 1000,  # Normalized amount
-            (row['Timestamp'] % 86400) / 3600,  # Hour of day
-            (row['Timestamp'] % 604800) / 86400,  # Day of week
-            row['Amount'] * 0.01,  # Scaled amount
-            row['Timestamp'] * 0.000001,  # Scaled timestamp
-            row['Amount'] ** 0.5,  # Square root amount
-            row['Timestamp'] ** 0.5,  # Square root timestamp
-            row['Amount'] % 100,  # Amount modulo
-            row['Timestamp'] % 100,  # Timestamp modulo
-            row['Amount'] / (row['Timestamp'] % 1000 + 1)  # Amount/timestamp ratio
-        ], dtype=torch.float32)  # 13 transaction features
-        
-        additional_features = torch.zeros(473)  # Additional features to reach 536 total
-        
-        edge_feat = torch.cat([from_node, to_node, transaction_features, additional_features])
-        
-        # Debug: verify dimensions
-        if len(edge_feat) != 536:
-            print(f"⚠️ WARNING: Edge feature dimension {len(edge_feat)} != 536")
-            print(f"   From node: {len(from_node)}, To node: {len(to_node)}")
-            print(f"   Transaction: {len(transaction_features)}, Additional: {len(additional_features)}")
-        
-        edge_features.append(edge_feat)
+    for _, row in tqdm(test_data.iterrows(), total=len(test_data), desc="Processing transactions"):
         edge_labels.append(row['Is Laundering'])
     
     # Convert to tensors
-    edge_features = torch.stack(edge_features).to(device)
     edge_labels = torch.tensor(edge_labels, dtype=torch.long).to(device)
     
-    print(f"✅ Created {len(edge_features):,} edge features")
-    print(f"📊 Edge features shape: {edge_features.shape}")
-    
-    # Verify dimensions match training
-    if edge_features.shape[1] != 536:
-        print(f"⚠️ WARNING: Edge features dimension {edge_features.shape[1]} doesn't match training (536)")
-    else:
-        print(f"✅ Edge features dimension matches training: {edge_features.shape[1]}")
+    print(f"✅ Created {len(edge_labels):,} edge labels")
+    print(f"📊 Edge labels shape: {edge_labels.shape}")
     
     # Run inference
     print("\n🔄 Running model inference...")
     with torch.no_grad():
-        # Create dummy edge index (simplified)
-        edge_index = torch.randint(0, len(all_accounts), (2, len(test_data)), device=device)
+        # Create edge index that corresponds to our actual edges
+        edge_index = torch.zeros((2, len(test_data)), dtype=torch.long, device=device)
+        for i, (_, row) in enumerate(test_data.iterrows()):
+            from_idx = account_to_idx[row['From Account']]
+            to_idx = account_to_idx[row['To Account']]
+            edge_index[0, i] = from_idx
+            edge_index[1, i] = to_idx
         
         # Create edge_attr (512 dimensions to match training)
         edge_attr = torch.randn(len(test_data), 512).to(device)
         
         # Get predictions
-        predictions = model(node_features.to(device), edge_index, edge_features, edge_attr)
+        predictions = model(node_features.to(device), edge_index, edge_attr)
         predicted_probs = F.softmax(predictions, dim=1)
         predicted_classes = torch.argmax(predicted_probs, dim=1)
     
