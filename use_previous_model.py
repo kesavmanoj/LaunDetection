@@ -176,6 +176,16 @@ def load_previous_model():
     # Load state dict
     try:
         state_dict = torch.load(model_path, map_location=device)
+        
+        # Initialize edge classifier first with dummy data
+        dummy_x = torch.randn(10, 15).to(device)
+        dummy_edge_index = torch.randint(0, 10, (2, 5)).to(device)
+        dummy_edge_attr = torch.randn(5, 13).to(device)
+        
+        with torch.no_grad():
+            _ = model(dummy_x, dummy_edge_index, dummy_edge_attr)
+        
+        # Now load the state dict
         model.load_state_dict(state_dict)
         print("✅ Model loaded successfully")
         return model
