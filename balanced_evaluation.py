@@ -94,10 +94,31 @@ def evaluate_balanced_model():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
     
-    # Load model
-    model_path = '/content/drive/MyDrive/LaunDetection/models/advanced_aml_model.pth'
-    if not os.path.exists(model_path):
-        print(f"❌ Model not found: {model_path}")
+    # Load model - try multiple possible locations
+    possible_paths = [
+        '/content/drive/MyDrive/LaunDetection/models/advanced_aml_model.pth',
+        '/content/drive/MyDrive/LaunDetection/advanced_aml_model.pth',
+        '/content/drive/MyDrive/LaunDetection/models/advanced_aml_model_latest.pth'
+    ]
+    
+    model_path = None
+    for path in possible_paths:
+        if os.path.exists(path):
+            model_path = path
+            break
+    
+    if not model_path:
+        print(f"❌ Model not found in any of these locations:")
+        for path in possible_paths:
+            print(f"   - {path}")
+        
+        # List available model files
+        models_dir = '/content/drive/MyDrive/LaunDetection/models'
+        if os.path.exists(models_dir):
+            print(f"\n📁 Available files in {models_dir}:")
+            for file in os.listdir(models_dir):
+                if file.endswith('.pth'):
+                    print(f"   📄 {file}")
         return
     
     # Initialize model

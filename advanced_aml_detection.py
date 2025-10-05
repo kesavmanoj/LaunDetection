@@ -450,7 +450,22 @@ class AdvancedAMLTrainer:
                         patience_counter = 0
                         
                         # Save best model
-                        torch.save(self.model.state_dict(), '/content/drive/MyDrive/LaunDetection/advanced_aml_model.pth')
+                        # Ensure models directory exists
+                        models_dir = '/content/drive/MyDrive/LaunDetection/models'
+                        os.makedirs(models_dir, exist_ok=True)
+                        
+                        # Save model with timestamp
+                        from datetime import datetime
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        model_path = f'{models_dir}/advanced_aml_model_{timestamp}.pth'
+                        torch.save(self.model.state_dict(), model_path)
+                        
+                        # Also save to a standard name for easy loading
+                        standard_path = f'{models_dir}/advanced_aml_model.pth'
+                        torch.save(self.model.state_dict(), standard_path)
+                        
+                        print(f"   💾 Model saved to: {model_path}")
+                        print(f"   💾 Standard path: {standard_path}")
                         print(f"   💾 Saved best AML model (AML F1={best_aml_f1:.4f}, Threshold={best_threshold:.2f})")
                     else:
                         patience_counter += 1
